@@ -1,17 +1,23 @@
 /// <reference types="jest" />
 import { JavaScriptExecutor } from './executor';
 import { createRemoteRuntimeApi } from './runtime_remote';
+import type { RuntimeOutputMessage } from './runtime_protocol';
 
 describe('dispatchRequest', () => {
   // Cell code resolves free identifiers against the realm global, so the
   // runtime global scope must be globalThis, as it is for the Web Worker.
-  const setup = async () => {
+  const setup = async (outputs: RuntimeOutputMessage[] = []) => {
     const globalScope = globalThis as unknown as Record<string, any>;
     const executor = new JavaScriptExecutor(globalScope);
     const api = createRemoteRuntimeApi(globalScope, executor);
-    await api.initialize({ baseUrl: 'http://localhost/' }, () => undefined);
+    await api.initialize({ baseUrl: 'http://localhost/' }, message => {
+      outputs.push(message);
+    });
     return api;
   };
+
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
   it('routes a GET request to a Hono route defined by cell code', async () => {
     const api = await setup();
@@ -25,7 +31,7 @@ describe('dispatchRequest', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toBe('hi');
+    expect(decode(response.body)).toBe('hi');
     expect(response.headers['content-type']).toContain('text/plain');
   });
 
@@ -38,6 +44,142 @@ describe('dispatchRequest', () => {
     });
 
     expect(response.status).toBe(404);
+  });
+
+  it('runs cell-defined middleware for requests under a claimed prefix', async () => {
+    const api = await setup();
+
+    const reply = await api.execute(
+      [
+        "claimPrefix('/mock/');",
+        "app.use('/mock/*', async (c, next) => {",
+        "  c.header('X-Mock-Middleware', 'ran');",
+        '  await next();',
+        '});',
+        "app.get('/mock/hello', c => c.text('hi'));"
+      ].join('\n'),
+      1
+    );
+    expect(reply.status).toBe('ok');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/mock/hello'
+    });
+
+    expect(response.status).toBe(200);
+    expect(decode(response.body)).toBe('hi');
+    expect(response.headers['x-mock-middleware']).toBe('ran');
+  });
+
+  it('returns 404 for an undefined path under a claimed prefix', async () => {
+    const api = await setup();
+
+    const reply = await api.execute(
+      [
+        "claimPrefix('/mock/');",
+        "app.get('/mock/hello', c => c.text('hi'));"
+      ].join('\n'),
+      1
+    );
+    expect(reply.status).toBe('ok');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/mock/missing'
+    });
+
+    expect(response.status).toBe(404);
+  });
+
+  it('round-trips a JSON request and response body', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.post('/echo', async c => c.json({ received: await c.req.json() }));",
+      1
+    );
+
+    const response = await api.dispatchRequest({
+      method: 'POST',
+      url: 'http://runtime.local/echo',
+      headers: { 'content-type': 'application/json' },
+      body: encode(JSON.stringify({ name: 'kernel', values: [1, 2, 3] }))
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(decode(response.body))).toEqual({
+      received: { name: 'kernel', values: [1, 2, 3] }
+    });
+  });
+
+  it('round-trips binary request and response bodies byte-for-byte', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.post('/bytes', async c => c.body(await c.req.arrayBuffer(), 200, { 'content-type': 'application/octet-stream' }));",
+      1
+    );
+
+    const input = new Uint8Array(256);
+    for (let i = 0; i < input.length; i++) {
+      input[i] = i;
+    }
+
+    const response = await api.dispatchRequest({
+      method: 'POST',
+      url: 'http://runtime.local/bytes',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: input
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('application/octet-stream');
+    expect(Array.from(response.body)).toEqual(Array.from(input));
+  });
+
+  it('preserves a Content-Type set by the handler', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.get('/typed', c => { c.header('content-type', 'application/vnd.kernel+json'); return c.body(new TextEncoder().encode('{}')); });",
+      1
+    );
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/typed'
+    });
+
+    expect(response.headers['content-type']).toBe(
+      'application/vnd.kernel+json'
+    );
+  });
+
+  it('returns 500 and reports the error when a handler throws', async () => {
+    const outputs: RuntimeOutputMessage[] = [];
+    const api = await setup(outputs);
+
+    const reply = await api.execute(
+      "app.get('/boom', () => { throw new Error('boom'); });",
+      1
+    );
+    expect(reply.status).toBe('ok');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/boom'
+    });
+
+    expect(response.status).toBe(500);
+
+    const errors = outputs.filter(message => message.type === 'execute_error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      type: 'execute_error',
+      bundle: { ename: 'Error', evalue: 'boom' }
+    });
   });
 });
 

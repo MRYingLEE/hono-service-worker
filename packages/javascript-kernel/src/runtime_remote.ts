@@ -4,6 +4,7 @@
 import { Hono } from 'hono';
 import { JavaScriptRuntimeEvaluator } from './runtime_evaluator';
 import type { JavaScriptExecutor } from './executor';
+import { normalizeError } from './errors';
 import type {
   IRemoteRuntimeApi,
   IRuntimeRequest,
@@ -117,6 +118,23 @@ export function createRemoteRuntimeApi(
       app = new Hono();
       appCallsByCell.clear();
       claimedPrefixes.clear();
+      // A handler exception becomes a 500 for the Client and is reported to
+      // the notebook through the same error output as a failing cell.
+      app.onError((error, c) => {
+        const normalized = normalizeError(error);
+        emitOutput(onOutput, {
+          type: 'execute_error',
+          bundle: {
+            status: 'error',
+            ename: normalized.name || 'Error',
+            evalue: normalized.message || '',
+            traceback: [
+              normalized.stack ?? `${normalized.name}: ${normalized.message}`
+            ]
+          }
+        });
+        return c.text('Internal Server Error', 500);
+      });
       globalScope.app = app;
       globalScope.claimPrefix = (prefix: string): void => {
         claimedPrefixes.add(prefix);
@@ -232,7 +250,7 @@ export function createRemoteRuntimeApi(
       return {
         status: response.status,
         headers,
-        body: await response.text()
+        body: new Uint8Array(await response.arrayBuffer())
       };
     },
 

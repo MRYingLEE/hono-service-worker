@@ -90,7 +90,7 @@ export interface IRuntimeRequest {
   method: string;
   url: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: Uint8Array;
 }
 
 /**
@@ -99,7 +99,7 @@ export interface IRuntimeRequest {
 export interface IRuntimeResponse {
   status: number;
   headers: Record<string, string>;
-  body: string;
+  body: Uint8Array;
 }
 
 /**

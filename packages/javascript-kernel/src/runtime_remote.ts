@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { JavaScriptRuntimeEvaluator } from './runtime_evaluator';
 import type { JavaScriptExecutor } from './executor';
 import { normalizeError } from './errors';
+import { headersToRecord } from './runtime_protocol';
 import type {
   IRemoteRuntimeApi,
   IRuntimeRequest,
@@ -281,13 +282,9 @@ export function createRemoteRuntimeApi(
         headers: request.headers,
         body: request.body
       });
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
       return {
         status: response.status,
-        headers,
+        headers: headersToRecord(response.headers),
         body: new Uint8Array(await response.arrayBuffer())
       };
     },

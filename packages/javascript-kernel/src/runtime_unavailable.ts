@@ -8,3 +8,10 @@ export class RuntimeUnavailableError extends Error {
     this.name = 'RuntimeUnavailableError';
   }
 }
+
+/**
+ * Plain-text body naming the claimed prefix, sent when no Runtime can answer.
+ */
+export function runtimeUnavailableMessage(prefix: string): string {
+  return `Runtime for ${prefix} is not running`;
+}

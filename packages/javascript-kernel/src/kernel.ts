@@ -634,7 +634,8 @@ export namespace JavaScriptKernel {
    * Runtime context available from `onRuntimeReady`.
    */
   export type IRuntimeReadyContext =
-    IIFrameRuntimeReadyContext | IWorkerRuntimeReadyContext;
+    | IIFrameRuntimeReadyContext
+    | IWorkerRuntimeReadyContext;
 
   /**
    * A comm target handler exported by a startup module.

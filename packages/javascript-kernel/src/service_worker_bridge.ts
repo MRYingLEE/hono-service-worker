@@ -1,8 +1,15 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
-import { RuntimeUnavailableError } from './runtime_unavailable';
+import {
+  headersToRecord,
+  IRuntimeRequest,
+  IRuntimeResponse
+} from './runtime_protocol';
+import {
+  RuntimeUnavailableError,
+  runtimeUnavailableMessage
+} from './runtime_unavailable';
 import { IClaim } from './service_worker_routing';
 
 /**
@@ -49,10 +56,7 @@ export interface IDispatchMessage {
 export async function toRuntimeRequest(
   request: Request
 ): Promise<IRuntimeRequest> {
-  const headers: Record<string, string> = {};
-  request.headers.forEach((value, key) => {
-    headers[key] = value;
-  });
+  const headers = headersToRecord(request.headers);
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
   return {
     method: request.method,
@@ -144,9 +148,7 @@ function unavailableResponse(prefix: string): IRuntimeResponse {
   return {
     status: 503,
     headers: { 'content-type': 'text/plain' },
-    body: new TextEncoder().encode(
-      `Runtime for ${prefix} is not running`
-    )
+    body: new TextEncoder().encode(runtimeUnavailableMessage(prefix))
   };
 }
 

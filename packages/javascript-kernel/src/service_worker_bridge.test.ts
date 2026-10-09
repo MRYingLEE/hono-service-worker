@@ -8,7 +8,18 @@ import {
 } from './service_worker_bridge';
 import { IClaim } from './service_worker_routing';
 import { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
-import { RuntimeUnavailableError } from './runtime_unavailable';
+import {
+  RuntimeUnavailableError,
+  runtimeUnavailableMessage
+} from './runtime_unavailable';
+
+describe('runtimeUnavailableMessage', () => {
+  it('names the claimed prefix in the plain-text body', () => {
+    expect(runtimeUnavailableMessage('cells')).toBe(
+      'Runtime for cells is not running'
+    );
+  });
+});
 
 describe('toRuntimeRequest', () => {
   it('converts a GET request into plain data without a body', async () => {

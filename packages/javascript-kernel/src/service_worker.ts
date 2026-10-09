@@ -2,6 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import { IRuntimeResponse } from './runtime_protocol';
+import { runtimeUnavailableMessage } from './runtime_unavailable';
 import {
   applyClaimMessage,
   applyRuntimeMessage,
@@ -83,10 +84,7 @@ sw.addEventListener(
 sw.addEventListener(
   'message',
   (event: { data: unknown; source: { id: string } }) => {
-    const message = event.data as
-      | IClaimMessage
-      | IRuntimeMessage
-      | undefined;
+    const message = event.data as IClaimMessage | IRuntimeMessage | undefined;
     if (!message) {
       return;
     }
@@ -137,7 +135,9 @@ sw.addEventListener(
           return toFetchResponse({
             status: 503,
             headers: { 'content-type': 'text/plain' },
-            body: new TextEncoder().encode('Issuing client is gone')
+            body: new TextEncoder().encode(
+              runtimeUnavailableMessage(claim.prefix)
+            )
           });
         }
         const request = await toRuntimeRequest(event.request);

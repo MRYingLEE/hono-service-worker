@@ -5,6 +5,10 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { IConsoleTracker } from '@jupyterlab/console';
+import type { ConsolePanel } from '@jupyterlab/console';
+import { INotebookTracker } from '@jupyterlab/notebook';
+import type { NotebookPanel } from '@jupyterlab/notebook';
 
 import type { IKernel } from '@jupyterlite/services';
 
@@ -240,9 +244,75 @@ const serviceWorker: JupyterFrontEndPlugin<void> = {
   }
 };
 
+/**
+ * Kernelspec names registered by this extension. Must match `registerKernel`.
+ */
+const javaScriptKernelNames = new Set(['javascript', 'javascript-worker']);
+
+/**
+ * Plugin shutting down the JavaScript kernel of a notebook or console when its
+ * tab closes, which also releases the kernel's service worker claims.
+ */
+const shutdownOnClose: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlite/javascript-kernel-extension:shutdown-on-close',
+  autoStart: true,
+  requires: [INotebookTracker, IConsoleTracker],
+  activate: (
+    app: JupyterFrontEnd,
+    notebooks: INotebookTracker,
+    consoles: IConsoleTracker
+  ) => {
+    const track = (panel: NotebookPanel | ConsolePanel): void => {
+      const { sessionContext } = panel;
+      let sessionId: string | null = null;
+
+      const updateSessionId = (): void => {
+        // Ignore updates once the context is disposed: disposing the session
+        // emits a null session, which must not forget the id to shut down.
+        if (sessionContext.isDisposed) {
+          return;
+        }
+        const session = sessionContext.session;
+        sessionId =
+          session && javaScriptKernelNames.has(session.kernel?.name ?? '')
+            ? session.id
+            : null;
+      };
+      updateSessionId();
+      sessionContext.sessionChanged.connect(updateSessionId);
+      sessionContext.kernelChanged.connect(updateSessionId);
+
+      panel.disposed.connect(() => {
+        // The widget manager disposes the context before this slot runs when
+        // this was the last view. Otherwise another view still uses the kernel.
+        if (!sessionContext.isDisposed || sessionId === null) {
+          return;
+        }
+        app.serviceManager.sessions.shutdown(sessionId).catch(error => {
+          console.error(
+            '[javascript-kernel] Failed to shut down the kernel on close.',
+            error
+          );
+        });
+      });
+    };
+
+    notebooks.forEach(track);
+    notebooks.widgetAdded.connect((_, panel) => track(panel));
+    consoles.forEach(track);
+    consoles.widgetAdded.connect((_, panel) => track(panel));
+  }
+};
+
 const plugins: Array<
   | JupyterFrontEndPlugin<IJavaScriptKernelStartupRegistry>
   | JupyterFrontEndPlugin<void>
-> = [startupExtensionsRegistry, kernelIFrame, kernelWorker, serviceWorker];
+> = [
+  startupExtensionsRegistry,
+  kernelIFrame,
+  kernelWorker,
+  serviceWorker,
+  shutdownOnClose
+];
 
 export default plugins;

@@ -9,6 +9,7 @@ node_modules/
 *.tsbuildinfo
 jupyterlite_javascript_kernel/labextension
 jupyterlite_javascript_kernel/javascript-kernel-service-worker.js
+jupyterlite_javascript_kernel/javascript-kernel-worker-runtime.js
 # Version file is handled by hatchling
 jupyterlite_javascript_kernel/_version.py
 

@@ -92,6 +92,55 @@ describe('dispatchRequest', () => {
     expect(response.status).toBe(404);
   });
 
+  it('drops an earlier cell route under a prefix that a later cell claims', async () => {
+    const api = await setup();
+
+    await api.execute(
+      ["app.get('/r/x', c => c.text('first'));", "claimPrefix('/r/');"].join(
+        '\n'
+      ),
+      1,
+      undefined,
+      'cell-1'
+    );
+    await api.execute(
+      ["app.get('/r/x', c => c.text('second'));", "claimPrefix('/r/');"].join(
+        '\n'
+      ),
+      2,
+      undefined,
+      'cell-2'
+    );
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/r/x'
+    });
+
+    expect(response.status).toBe(200);
+    expect(decode(response.body)).toBe('second');
+  });
+
+  it('keeps earlier cell routes under prefixes the later claim does not cover', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.get('/keep', c => c.text('kept'));",
+      1,
+      undefined,
+      'cell-1'
+    );
+    await api.execute("claimPrefix('/r/');", 2, undefined, 'cell-2');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/keep'
+    });
+
+    expect(response.status).toBe(200);
+    expect(decode(response.body)).toBe('kept');
+  });
+
   it('round-trips a JSON request and response body', async () => {
     const api = await setup();
 
@@ -317,16 +366,24 @@ describe('identify', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = await setup();
 
-    const clientId = await api.identify('http://runtime.local/__runtime_identity__');
+    const clientId = await api.identify(
+      'http://runtime.local/__runtime_identity__'
+    );
 
-    expect(fetchMock).toHaveBeenCalledWith('http://runtime.local/__runtime_identity__');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://runtime.local/__runtime_identity__'
+    );
     expect(clientId).toBe('worker-1');
   });
 
   it('returns null when the identity request is not ok', async () => {
-    globalThis.fetch = jest.fn(async () => new Response('nope', { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = jest.fn(
+      async () => new Response('nope', { status: 503 })
+    ) as unknown as typeof fetch;
     const api = await setup();
 
-    await expect(api.identify('http://runtime.local/__runtime_identity__')).resolves.toBeNull();
+    await expect(
+      api.identify('http://runtime.local/__runtime_identity__')
+    ).resolves.toBeNull();
   });
 });

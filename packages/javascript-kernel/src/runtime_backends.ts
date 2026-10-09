@@ -11,6 +11,7 @@ import * as Comlink from 'comlink';
 import { JavaScriptExecutor } from './executor';
 import { normalizeError } from './errors';
 import { createRemoteRuntimeApi } from './runtime_remote';
+import { RuntimeHeartbeat } from './runtime_heartbeat';
 import { RuntimeUnavailableError } from './runtime_unavailable';
 import { registerRuntimeClient } from './service_worker_client';
 import { RUNTIME_IDENTITY_SEGMENT } from './service_worker_routing';
@@ -22,6 +23,19 @@ import type {
   RuntimeOutputHandler,
   RuntimeOutputMessage
 } from './runtime_protocol';
+
+/**
+ * File name of the worker runtime bundle the lab build emits. It lives under
+ * the lab page's scope, so the service worker controls the worker.
+ */
+export const WORKER_RUNTIME_FILENAME = 'javascript-kernel-worker-runtime.js';
+
+/**
+ * URL of the worker runtime bundle, resolved against the lab page.
+ */
+export function workerRuntimeUrl(baseURI: string): string {
+  return new URL(WORKER_RUNTIME_FILENAME, baseURI).href;
+}
 
 /**
  * Shared options for runtime backend implementations.
@@ -180,7 +194,7 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
    */
   async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
     await this.ready;
-    return this._getRemote().dispatchRequest(request);
+    return this._guardRequest(this._getRemote().dispatchRequest(request));
   }
 
   /**
@@ -249,6 +263,13 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
         parentMessageId
       );
     }
+  }
+
+  /**
+   * Let a subclass fail a request that its runtime can no longer answer.
+   */
+  protected _guardRequest<T>(request: Promise<T>): Promise<T> {
+    return request;
   }
 
   /**
@@ -519,7 +540,7 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
       return;
     }
 
-    const worker = new Worker(new URL('./worker-runtime.js', import.meta.url), {
+    const worker = new Worker(workerRuntimeUrl(document.baseURI), {
       type: 'module'
     });
 
@@ -552,6 +573,8 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
    */
   dispose(): void {
     this._ready.reject(new RuntimeUnavailableError('Worker runtime disposed'));
+    this._heartbeat?.stop();
+    this._heartbeat = null;
 
     if (this._remote) {
       void this._remote.dispose().catch(() => undefined);
@@ -603,6 +626,7 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
           remote.unregisterCommTarget(targetName)
       });
 
+      this._startHeartbeat(remote);
       this._ready.resolve();
     } catch (error) {
       this._handleWorkerFatal(normalizeError(error));
@@ -610,9 +634,27 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
   }
 
   /**
+   * Fail requests once the worker stops answering pings.
+   */
+  private _startHeartbeat(remote: Comlink.Remote<IRemoteRuntimeApi>): void {
+    this._heartbeat = new RuntimeHeartbeat({
+      ping: () => remote.ping(),
+      intervalMs: WorkerRuntimeBackend.HEARTBEAT_INTERVAL_MS,
+      timeoutMs: WorkerRuntimeBackend.HEARTBEAT_TIMEOUT_MS
+    });
+    this._heartbeat.start();
+  }
+
+  protected _guardRequest<T>(request: Promise<T>): Promise<T> {
+    return this._heartbeat ? this._heartbeat.run(request) : request;
+  }
+
+  /**
    * Reject initialization with a fatal worker error.
    */
   private _handleWorkerFatal(error: Error): void {
+    this._heartbeat?.stop();
+    this._heartbeat = null;
     if (this._remote) {
       this._remote[Comlink.releaseProxy]();
       this._remote = null;
@@ -629,8 +671,11 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
   private _options: WorkerRuntimeBackend.IOptions;
   private _worker: Worker | null = null;
   private _outputProxy: RuntimeOutputCallback | null = null;
+  private _heartbeat: RuntimeHeartbeat | null = null;
 
   static readonly STARTUP_TIMEOUT_MS = 10000;
+  static readonly HEARTBEAT_INTERVAL_MS = 1000;
+  static readonly HEARTBEAT_TIMEOUT_MS = 3000;
 }
 
 /**

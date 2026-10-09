@@ -19,39 +19,49 @@ def _run_actions(task):
         func(*args)
 
 
-def test_build_yields_one_task_targeting_lab(tmp_path):
+def _write_bundles(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True, exist_ok=True)
+    for name in addon.LAB_SCRIPTS:
+        (source_dir / name).write_text(f"// {name}")
+
+
+def test_build_yields_one_task_per_lab_script_targeting_lab(tmp_path):
     tasks = _build_tasks(tmp_path / "_output")
 
-    assert len(tasks) == 1
-    assert tasks[0]["targets"] == [
-        tmp_path / "_output" / "lab" / addon.SERVICE_WORKER_NAME
+    assert [task["targets"] for task in tasks] == [
+        [tmp_path / "_output" / "lab" / name] for name in addon.LAB_SCRIPTS
     ]
 
 
-def test_build_depends_on_the_bundled_script(tmp_path, monkeypatch):
-    source = tmp_path / "bundle.js"
-    source.write_text("self.addEventListener('fetch', () => {});")
-    monkeypatch.setattr(addon, "SOURCE", source)
+def test_build_depends_on_each_bundled_script(tmp_path, monkeypatch):
+    _write_bundles(tmp_path / "bundles")
+    monkeypatch.setattr(addon, "SOURCE_DIR", tmp_path / "bundles")
 
     tasks = _build_tasks(tmp_path / "_output")
 
-    assert tasks[0]["file_dep"] == [source]
+    assert [task["file_dep"] for task in tasks] == [
+        [tmp_path / "bundles" / name] for name in addon.LAB_SCRIPTS
+    ]
 
 
-def test_build_copies_the_bundle_into_the_lab_output(tmp_path, monkeypatch):
-    source = tmp_path / "bundle.js"
-    source.write_text("self.addEventListener('fetch', () => {});")
-    monkeypatch.setattr(addon, "SOURCE", source)
+def test_build_copies_each_bundle_into_the_lab_output(tmp_path, monkeypatch):
+    _write_bundles(tmp_path / "bundles")
+    monkeypatch.setattr(addon, "SOURCE_DIR", tmp_path / "bundles")
 
-    task = _build_tasks(tmp_path / "_output")[0]
-    _run_actions(task)
+    for task in _build_tasks(tmp_path / "_output"):
+        _run_actions(task)
 
-    target = tmp_path / "_output" / "lab" / addon.SERVICE_WORKER_NAME
-    assert target.read_text() == source.read_text()
+    for name in addon.LAB_SCRIPTS:
+        target = tmp_path / "_output" / "lab" / name
+        assert target.read_text() == f"// {name}"
 
 
 def test_service_worker_name_is_the_registered_script_name():
     assert addon.SERVICE_WORKER_NAME == "javascript-kernel-service-worker.js"
+
+
+def test_worker_runtime_name_is_the_name_the_backend_loads():
+    assert addon.WORKER_RUNTIME_NAME == "javascript-kernel-worker-runtime.js"
 
 
 def test_addon_is_registered_as_a_jupyterlite_addon():

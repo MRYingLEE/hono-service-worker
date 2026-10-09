@@ -46,11 +46,15 @@ fields = ["description", "authors", "urls", "keywords"]
 artifacts = [
     "jupyterlite_javascript_kernel/labextension",
     "jupyterlite_javascript_kernel/javascript-kernel-service-worker.js",
+    "jupyterlite_javascript_kernel/javascript-kernel-worker-runtime.js",
 ]
 exclude = [".github", "binder"]
 
 [tool.hatch.build.targets.wheel]
-artifacts = ["jupyterlite_javascript_kernel/javascript-kernel-service-worker.js"]
+artifacts = [
+    "jupyterlite_javascript_kernel/javascript-kernel-service-worker.js",
+    "jupyterlite_javascript_kernel/javascript-kernel-worker-runtime.js",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyterlite_javascript_kernel/labextension" = "share/jupyter/labextensions/@jupyterlite/javascript-kernel-extension"

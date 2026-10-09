@@ -8,7 +8,8 @@ import { generate } from 'astring';
 
 import type { IMimeBundle } from '@jupyterlab/nbformat';
 
-export { IDisplayData, IDisplayCallbacks, DisplayHelper } from './display';
+export type { IDisplayData, IDisplayCallbacks } from './display';
+export { DisplayHelper } from './display';
 
 /** Matches the word "eval" in a stack frame (user eval code). */
 const RE_EVAL = /\beval\b/;

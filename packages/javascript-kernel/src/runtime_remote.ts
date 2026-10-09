@@ -40,6 +40,34 @@ const REGISTRATION_METHODS = new Set([
 ]);
 
 /**
+ * Route registrations whose path is the first argument, or the second for
+ * `on(method, path, ...)`.
+ */
+const PATH_ARG_INDEX: Record<string, number> = {
+  get: 0,
+  post: 0,
+  put: 0,
+  delete: 0,
+  patch: 0,
+  options: 0,
+  head: 0,
+  all: 0,
+  use: 0,
+  route: 0,
+  mount: 0,
+  on: 1
+};
+
+const routePathOf = (call: IAppCall): string | undefined => {
+  const index = PATH_ARG_INDEX[call.method];
+  if (index === undefined) {
+    return undefined;
+  }
+  const path = call.args[index];
+  return typeof path === 'string' ? path : undefined;
+};
+
+/**
  * Create a Comlink runtime API bound to the provided global scope.
  */
 export function createRemoteRuntimeApi(
@@ -50,6 +78,8 @@ export function createRemoteRuntimeApi(
   let app: Hono = new Hono();
   // Keyed by cell id; insertion order keeps a re-run cell in its original position.
   const appCallsByCell = new Map<string, IAppCall[]>();
+  // Key of the cell currently executing, so its claims can keep its own routes.
+  let currentCellKey: string | null = null;
   // Cell `claimedPrefixes()` calls waiting on the Kernel's answer, keyed by request id.
   const pendingClaimedPrefixes = new Map<
     string,
@@ -143,6 +173,28 @@ export function createRemoteRuntimeApi(
     globalScope.app = next;
   };
 
+  /**
+   * Forget routes that other cells registered under a prefix the executing
+   * cell is claiming, so the claimant's handlers answer those paths.
+   */
+  const dropRoutesUnder = (prefix: string): void => {
+    if (currentCellKey === null) {
+      return;
+    }
+    for (const [key, calls] of appCallsByCell) {
+      if (key === currentCellKey) {
+        continue;
+      }
+      appCallsByCell.set(
+        key,
+        calls.filter(call => {
+          const path = routePathOf(call);
+          return path === undefined || !path.startsWith(prefix);
+        })
+      );
+    }
+  };
+
   return {
     async initialize(
       options: Parameters<IRemoteRuntimeApi['initialize']>[0],
@@ -157,6 +209,7 @@ export function createRemoteRuntimeApi(
       appCallsByCell.clear();
       globalScope.app = app;
       globalScope.claimPrefix = (prefix: string): void => {
+        dropRoutesUnder(prefix);
         emitOutput(onOutput, { type: 'claim_prefix', prefix });
       };
       globalScope.releasePrefix = (prefix: string): void => {
@@ -199,9 +252,11 @@ export function createRemoteRuntimeApi(
       const calls: IAppCall[] = [];
       appCallsByCell.set(key, calls);
       globalScope.app = createRecordingApp(calls);
+      currentCellKey = key;
       try {
         return await runtime.execute(code, executionCount, parentMessageId);
       } finally {
+        currentCellKey = null;
         rebuildApp();
       }
     },
@@ -299,6 +354,10 @@ export function createRemoteRuntimeApi(
       }
       pendingClaimedPrefixes.delete(requestId);
       resolve([...prefixes]);
+    },
+
+    async ping(): Promise<void> {
+      return;
     },
 
     async dispose(): Promise<void> {

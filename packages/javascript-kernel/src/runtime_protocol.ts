@@ -160,6 +160,7 @@ export interface IRemoteRuntimeApi {
   ): Promise<void>;
   dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse>;
   resolveClaimedPrefixes(requestId: string, prefixes: string[]): Promise<void>;
+  ping(): Promise<void>;
   dispose(): Promise<void>;
 }
 

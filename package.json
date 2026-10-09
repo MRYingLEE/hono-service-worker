@@ -31,7 +31,7 @@
     "clean": "lerna run clean",
     "clean:all": "lerna run clean && rimraf node_modules",
     "install:dev": "yarn run build:prod && yarn run develop",
-    "install:extension": "jupyter-builder develop --overwrite . && node packages/javascript-kernel/src/build_service_worker.js jupyterlite_javascript_kernel",
+    "install:extension": "jupyter-builder develop --overwrite . && node packages/javascript-kernel/src/build_lab_scripts.js jupyterlite_javascript_kernel",
     "eslint": "eslint . --ext .ts,.tsx --fix",
     "eslint:check": "eslint . --ext .ts,.tsx",
     "lint": "yarn run eslint && yarn run prettier",

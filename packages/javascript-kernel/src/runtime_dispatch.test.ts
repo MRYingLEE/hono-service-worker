@@ -3,6 +3,9 @@ import { JavaScriptExecutor } from './executor';
 import { createRemoteRuntimeApi } from './runtime_remote';
 import type { RuntimeOutputMessage } from './runtime_protocol';
 
+const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+
 describe('dispatchRequest', () => {
   // Cell code resolves free identifiers against the realm global, so the
   // runtime global scope must be globalThis, as it is for the Web Worker.
@@ -15,9 +18,6 @@ describe('dispatchRequest', () => {
     });
     return api;
   };
-
-  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
-  const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
   it('routes a GET request to a Hono route defined by cell code', async () => {
     const api = await setup();
@@ -204,7 +204,7 @@ describe('route table lifecycle', () => {
       undefined,
       'cell-a'
     );
-    expect((await get(api, '/hello')).body).toBe('one');
+    expect(decode((await get(api, '/hello')).body)).toBe('one');
 
     await api.execute(
       "app.get('/hello', c => c.text('two'));",
@@ -212,7 +212,7 @@ describe('route table lifecycle', () => {
       undefined,
       'cell-a'
     );
-    expect((await get(api, '/hello')).body).toBe('two');
+    expect(decode((await get(api, '/hello')).body)).toBe('two');
   });
 
   it('returns 404 for a route removed from a re-run cell', async () => {
@@ -232,7 +232,7 @@ describe('route table lifecycle', () => {
     );
 
     expect((await get(api, '/gone')).status).toBe(404);
-    expect((await get(api, '/keep')).body).toBe('keep');
+    expect(decode((await get(api, '/keep')).body)).toBe('keep');
   });
 
   it('keeps routes from other cells when one cell is re-run', async () => {
@@ -257,8 +257,8 @@ describe('route table lifecycle', () => {
       'cell-a'
     );
 
-    expect((await get(api, '/a')).body).toBe('a2');
-    expect((await get(api, '/b')).body).toBe('b');
+    expect(decode((await get(api, '/a')).body)).toBe('a2');
+    expect(decode((await get(api, '/b')).body)).toBe('b');
   });
 
   it('empties the route table when the runtime is restarted', async () => {

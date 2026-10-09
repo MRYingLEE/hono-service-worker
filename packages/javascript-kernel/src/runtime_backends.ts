@@ -13,6 +13,8 @@ import { normalizeError } from './errors';
 import { createRemoteRuntimeApi } from './runtime_remote';
 import type {
   IRemoteRuntimeApi,
+  IRuntimeRequest,
+  IRuntimeResponse,
   RuntimeOutputCallback,
   RuntimeOutputHandler,
   RuntimeOutputMessage
@@ -49,6 +51,7 @@ export interface IRuntimeBackend {
   isComplete(
     code: string
   ): Promise<KernelMessage.IIsCompleteReplyMsg['content']>;
+  dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse>;
   handleCommOpen(
     commId: string,
     targetName: string,
@@ -129,6 +132,14 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
   ): Promise<KernelMessage.IIsCompleteReplyMsg['content']> {
     await this.ready;
     return this._getRemote().isComplete(code);
+  }
+
+  /**
+   * Dispatch an HTTP-like request to the runtime's Hono app.
+   */
+  async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
+    await this.ready;
+    return this._getRemote().dispatchRequest(request);
   }
 
   /**

@@ -1,10 +1,13 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
+import { Hono } from 'hono';
 import { JavaScriptRuntimeEvaluator } from './runtime_evaluator';
 import type { JavaScriptExecutor } from './executor';
 import type {
   IRemoteRuntimeApi,
+  IRuntimeRequest,
+  IRuntimeResponse,
   RuntimeOutputMessage
 } from './runtime_protocol';
 
@@ -16,6 +19,8 @@ export function createRemoteRuntimeApi(
   executor?: JavaScriptExecutor
 ): IRemoteRuntimeApi {
   let evaluator: JavaScriptRuntimeEvaluator | null = null;
+  let app: Hono = new Hono();
+  const claimedPrefixes = new Set<string>();
 
   const ensureEvaluator = (): JavaScriptRuntimeEvaluator => {
     if (!evaluator) {
@@ -42,6 +47,12 @@ export function createRemoteRuntimeApi(
         throw new Error('Runtime baseUrl is required');
       }
       evaluator?.dispose();
+      app = new Hono();
+      claimedPrefixes.clear();
+      globalScope.app = app;
+      globalScope.claimPrefix = (prefix: string): void => {
+        claimedPrefixes.add(prefix);
+      };
       evaluator = new JavaScriptRuntimeEvaluator({
         globalScope,
         executor,
@@ -127,6 +138,23 @@ export function createRemoteRuntimeApi(
       parentMessageId?: string
     ): Promise<void> {
       ensureEvaluator().handleCommClose(commId, data, buffers, parentMessageId);
+    },
+
+    async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
+      const response = await app.request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body
+      });
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      return {
+        status: response.status,
+        headers,
+        body: await response.text()
+      };
     },
 
     async dispose(): Promise<void> {

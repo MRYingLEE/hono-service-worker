@@ -448,6 +448,13 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
       case 'release_prefix':
         this.releaseClaim(message.prefix);
         break;
+      case 'claimed_prefixes_request':
+        this._backend
+          .resolveClaimedPrefixes(message.requestId, claimedPrefixes(this.id))
+          .catch(error =>
+            console.warn('Failed to answer claimedPrefixes request', error)
+          );
+        break;
       default:
         break;
     }

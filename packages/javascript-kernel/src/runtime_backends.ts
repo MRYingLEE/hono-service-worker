@@ -86,6 +86,7 @@ export interface IRuntimeBackend {
     code: string
   ): Promise<KernelMessage.IIsCompleteReplyMsg['content']>;
   dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse>;
+  resolveClaimedPrefixes(requestId: string, prefixes: string[]): Promise<void>;
   handleCommOpen(
     commId: string,
     targetName: string,
@@ -180,6 +181,17 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
   async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
     await this.ready;
     return this._getRemote().dispatchRequest(request);
+  }
+
+  /**
+   * Answer a cell's claimedPrefixes() request from the remote runtime.
+   */
+  async resolveClaimedPrefixes(
+    requestId: string,
+    prefixes: string[]
+  ): Promise<void> {
+    await this.ready;
+    return this._getRemote().resolveClaimedPrefixes(requestId, prefixes);
   }
 
   /**

@@ -71,7 +71,8 @@ export type RuntimeOutputMessage =
       buffers?: ArrayBuffer[];
     }
   | { type: 'claim_prefix'; prefix: string }
-  | { type: 'release_prefix'; prefix: string };
+  | { type: 'release_prefix'; prefix: string }
+  | { type: 'claimed_prefixes_request'; requestId: string };
 
 /**
  * Callback invoked when a runtime emits output.
@@ -158,5 +159,6 @@ export interface IRemoteRuntimeApi {
     parentMessageId?: string
   ): Promise<void>;
   dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse>;
+  resolveClaimedPrefixes(requestId: string, prefixes: string[]): Promise<void>;
   dispose(): Promise<void>;
 }

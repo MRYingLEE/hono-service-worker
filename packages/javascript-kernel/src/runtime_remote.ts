@@ -49,6 +49,12 @@ export function createRemoteRuntimeApi(
   let app: Hono = new Hono();
   // Keyed by cell id; insertion order keeps a re-run cell in its original position.
   const appCallsByCell = new Map<string, IAppCall[]>();
+  // Cell `claimedPrefixes()` calls waiting on the Kernel's answer, keyed by request id.
+  const pendingClaimedPrefixes = new Map<
+    string,
+    (prefixes: string[]) => void
+  >();
+  let nextClaimedPrefixesRequest = 0;
 
   const ensureEvaluator = (): JavaScriptRuntimeEvaluator => {
     if (!evaluator) {
@@ -155,6 +161,13 @@ export function createRemoteRuntimeApi(
       globalScope.releasePrefix = (prefix: string): void => {
         emitOutput(onOutput, { type: 'release_prefix', prefix });
       };
+      pendingClaimedPrefixes.clear();
+      globalScope.claimedPrefixes = (): Promise<string[]> =>
+        new Promise<string[]>(resolve => {
+          const requestId = `claimed-prefixes-${nextClaimedPrefixesRequest++}`;
+          pendingClaimedPrefixes.set(requestId, resolve);
+          emitOutput(onOutput, { type: 'claimed_prefixes_request', requestId });
+        });
       evaluator = new JavaScriptRuntimeEvaluator({
         globalScope,
         executor,
@@ -279,9 +292,22 @@ export function createRemoteRuntimeApi(
       };
     },
 
+    async resolveClaimedPrefixes(
+      requestId: string,
+      prefixes: string[]
+    ): Promise<void> {
+      const resolve = pendingClaimedPrefixes.get(requestId);
+      if (!resolve) {
+        return;
+      }
+      pendingClaimedPrefixes.delete(requestId);
+      resolve([...prefixes]);
+    },
+
     async dispose(): Promise<void> {
       evaluator?.dispose();
       evaluator = null;
+      pendingClaimedPrefixes.clear();
     }
   };
 }

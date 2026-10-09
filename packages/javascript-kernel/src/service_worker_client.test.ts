@@ -72,7 +72,7 @@ describe('connectServiceWorker', () => {
     const response: IRuntimeResponse = {
       status: 200,
       headers: { 'content-type': 'text/plain' },
-      body: 'hi'
+      body: new TextEncoder().encode('hi')
     };
     const dispatched: IRuntimeRequest[] = [];
     const backends = new Map<string, IDispatchTarget>([

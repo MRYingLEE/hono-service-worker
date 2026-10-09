@@ -32,7 +32,7 @@ describe('toRuntimeRequest', () => {
     const runtimeRequest = await toRuntimeRequest(request);
 
     expect(runtimeRequest.method).toBe('POST');
-    expect(runtimeRequest.body).toBe('payload');
+    expect(new TextDecoder().decode(runtimeRequest.body)).toBe('payload');
   });
 });
 
@@ -41,7 +41,7 @@ describe('toFetchResponse', () => {
     const response = toFetchResponse({
       status: 201,
       headers: { 'content-type': 'text/plain' },
-      body: 'created'
+      body: new TextEncoder().encode('created')
     });
 
     expect(response.status).toBe(201);
@@ -145,7 +145,11 @@ describe('handleDispatchMessage', () => {
         {
           dispatchRequest: async (req: IRuntimeRequest) => {
             seen.push(req);
-            return { status: 200, headers: {}, body: 'hi' };
+            return {
+              status: 200,
+              headers: {},
+              body: new TextEncoder().encode('hi')
+            };
           }
         }
       ]
@@ -158,7 +162,11 @@ describe('handleDispatchMessage', () => {
     });
 
     expect(seen).toEqual([request]);
-    expect(response).toEqual({ status: 200, headers: {}, body: 'hi' });
+    expect(response).toEqual({
+      status: 200,
+      headers: {},
+      body: new TextEncoder().encode('hi')
+    });
   });
 
   it('answers 503 when no kernel with that id is on the page', async () => {

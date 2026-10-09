@@ -37,7 +37,8 @@ export interface IRuntimeBackend {
   execute(
     code: string,
     executionCount: number,
-    parentMessageId?: string
+    parentMessageId?: string,
+    cellId?: string
   ): Promise<KernelMessage.IExecuteReplyMsg['content']>;
   complete(
     code: string,
@@ -95,10 +96,16 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
   async execute(
     code: string,
     executionCount: number,
-    parentMessageId?: string
+    parentMessageId?: string,
+    cellId?: string
   ): Promise<KernelMessage.IExecuteReplyMsg['content']> {
     await this.ready;
-    return this._getRemote().execute(code, executionCount, parentMessageId);
+    return this._getRemote().execute(
+      code,
+      executionCount,
+      parentMessageId,
+      cellId
+    );
   }
 
   /**

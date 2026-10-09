@@ -38,7 +38,7 @@ export async function toRuntimeRequest(
     method: request.method,
     url: request.url,
     headers,
-    body: hasBody ? await request.text() : undefined
+    body: hasBody ? new Uint8Array(await request.arrayBuffer()) : undefined
   };
 }
 
@@ -46,7 +46,7 @@ export async function toRuntimeRequest(
  * Convert a Runtime response into a Fetch API response for the Client.
  */
 export function toFetchResponse(response: IRuntimeResponse): Response {
-  return new Response(response.body, {
+  return new Response(response.body as BodyInit, {
     status: response.status,
     headers: response.headers
   });
@@ -113,7 +113,9 @@ export async function handleDispatchMessage(
     return {
       status: 503,
       headers: { 'content-type': 'text/plain' },
-      body: `Kernel ${message.kernelId} is not available`
+      body: new TextEncoder().encode(
+        `Kernel ${message.kernelId} is not available`
+      )
     };
   }
   return backend.dispatchRequest(message.request);

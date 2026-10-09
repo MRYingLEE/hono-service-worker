@@ -98,7 +98,7 @@ sw.addEventListener(
           return toFetchResponse({
             status: 503,
             headers: { 'content-type': 'text/plain' },
-            body: 'Issuing client is gone'
+            body: new TextEncoder().encode('Issuing client is gone')
           });
         }
         const request = await toRuntimeRequest(event.request);

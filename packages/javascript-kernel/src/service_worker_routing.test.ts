@@ -1,5 +1,5 @@
 /// <reference types="jest" />
-import { IClaim, resolveOwningKernel } from '../src/service_worker_routing';
+import { IClaim, resolveOwningKernel } from './service_worker_routing';
 
 const URL_BASE = 'https://example.org';
 

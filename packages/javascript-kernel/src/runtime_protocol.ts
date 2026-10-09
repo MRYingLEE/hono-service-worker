@@ -84,6 +84,25 @@ export type RuntimeOutputCallback = (
 ) => void | Promise<void>;
 
 /**
+ * Plain-data HTTP request dispatched into a Runtime's Hono app.
+ */
+export interface IRuntimeRequest {
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/**
+ * Plain-data HTTP response returned from a Runtime's Hono app.
+ */
+export interface IRuntimeResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/**
  * Runtime API exposed from iframe and worker contexts over Comlink.
  */
 export interface IRemoteRuntimeApi {
@@ -134,5 +153,6 @@ export interface IRemoteRuntimeApi {
     buffers?: ArrayBuffer[],
     parentMessageId?: string
   ): Promise<void>;
+  dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse>;
   dispose(): Promise<void>;
 }

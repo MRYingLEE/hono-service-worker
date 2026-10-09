@@ -153,7 +153,7 @@ export function createRemoteRuntimeApi(
       return {
         status: response.status,
         headers,
-        body: await response.text()
+        body: new Uint8Array(await response.arrayBuffer())
       };
     },
 

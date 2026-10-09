@@ -13,6 +13,9 @@ describe('dispatchRequest', () => {
     return api;
   };
 
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+
   it('routes a GET request to a Hono route defined by cell code', async () => {
     const api = await setup();
 
@@ -25,7 +28,7 @@ describe('dispatchRequest', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toBe('hi');
+    expect(decode(response.body)).toBe('hi');
     expect(response.headers['content-type']).toContain('text/plain');
   });
 
@@ -62,7 +65,7 @@ describe('dispatchRequest', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toBe('hi');
+    expect(decode(response.body)).toBe('hi');
     expect(response.headers['x-mock-middleware']).toBe('ran');
   });
 
@@ -84,5 +87,70 @@ describe('dispatchRequest', () => {
     });
 
     expect(response.status).toBe(404);
+  });
+
+  it('round-trips a JSON request and response body', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.post('/echo', async c => c.json({ received: await c.req.json() }));",
+      1
+    );
+
+    const response = await api.dispatchRequest({
+      method: 'POST',
+      url: 'http://runtime.local/echo',
+      headers: { 'content-type': 'application/json' },
+      body: encode(JSON.stringify({ name: 'kernel', values: [1, 2, 3] }))
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(decode(response.body))).toEqual({
+      received: { name: 'kernel', values: [1, 2, 3] }
+    });
+  });
+
+  it('round-trips binary request and response bodies byte-for-byte', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.post('/bytes', async c => c.body(await c.req.arrayBuffer(), 200, { 'content-type': 'application/octet-stream' }));",
+      1
+    );
+
+    const input = new Uint8Array(256);
+    for (let i = 0; i < input.length; i++) {
+      input[i] = i;
+    }
+
+    const response = await api.dispatchRequest({
+      method: 'POST',
+      url: 'http://runtime.local/bytes',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: input
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('application/octet-stream');
+    expect(Array.from(response.body)).toEqual(Array.from(input));
+  });
+
+  it('preserves a Content-Type set by the handler', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.get('/typed', c => { c.header('content-type', 'application/vnd.kernel+json'); return c.body(new TextEncoder().encode('{}')); });",
+      1
+    );
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/typed'
+    });
+
+    expect(response.headers['content-type']).toBe(
+      'application/vnd.kernel+json'
+    );
   });
 });

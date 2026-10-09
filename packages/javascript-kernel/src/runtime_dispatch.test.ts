@@ -39,4 +39,50 @@ describe('dispatchRequest', () => {
 
     expect(response.status).toBe(404);
   });
+
+  it('runs cell-defined middleware for requests under a claimed prefix', async () => {
+    const api = await setup();
+
+    const reply = await api.execute(
+      [
+        "claimPrefix('/mock/');",
+        "app.use('/mock/*', async (c, next) => {",
+        "  c.header('X-Mock-Middleware', 'ran');",
+        '  await next();',
+        '});',
+        "app.get('/mock/hello', c => c.text('hi'));"
+      ].join('\n'),
+      1
+    );
+    expect(reply.status).toBe('ok');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/mock/hello'
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBe('hi');
+    expect(response.headers['x-mock-middleware']).toBe('ran');
+  });
+
+  it('returns 404 for an undefined path under a claimed prefix', async () => {
+    const api = await setup();
+
+    const reply = await api.execute(
+      [
+        "claimPrefix('/mock/');",
+        "app.get('/mock/hello', c => c.text('hi'));"
+      ].join('\n'),
+      1
+    );
+    expect(reply.status).toBe('ok');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/mock/missing'
+    });
+
+    expect(response.status).toBe(404);
+  });
 });

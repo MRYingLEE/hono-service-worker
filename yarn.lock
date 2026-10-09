@@ -3033,6 +3033,7 @@ __metadata:
     "@types/jest": ^26.0.10
     astring: ^1.9.0
     comlink: ^4.3.1
+    hono: ^4.13.13
     jest: ^26.4.2
     meriyah: ^4.3.9
     rimraf: ~5.0.1
@@ -8972,6 +8973,13 @@ __metadata:
   dependencies:
     function-bind: ^1.1.2
   checksum: e8516f776a15149ca6c6ed2ae3110c417a00b62260e222590e54aa367cbcd6ed99122020b37b7fbdf05748df57b265e70095d7bf35a47660587619b15ffb93db
+  languageName: node
+  linkType: hard
+
+"hono@npm:^4.13.13":
+  version: 4.13.13
+  resolution: "hono@npm:4.13.13"
+  checksum: fd60e0f0f5a00fe7ac1a5d853ac14a141e0af396099288d626dff5faadfd5bb43a0ae488af46102a9bb1a1009bd388d07577b78b11ea407d0b7bd501eb0e48c5
   languageName: node
   linkType: hard
 

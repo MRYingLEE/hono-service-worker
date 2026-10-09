@@ -7,6 +7,7 @@ import {
 } from './service_worker_bridge';
 import { IClaim } from './service_worker_routing';
 import { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
+import { RuntimeUnavailableError } from './runtime_unavailable';
 
 describe('toRuntimeRequest', () => {
   it('converts a GET request into plain data without a body', async () => {
@@ -158,6 +159,7 @@ describe('handleDispatchMessage', () => {
     const response = await handleDispatchMessage(backends, {
       type: 'dispatch',
       kernelId: 'k1',
+      prefix: 'cells',
       request
     });
 
@@ -173,9 +175,69 @@ describe('handleDispatchMessage', () => {
     const response: IRuntimeResponse = await handleDispatchMessage(new Map(), {
       type: 'dispatch',
       kernelId: 'missing',
+      prefix: 'cells',
       request
     });
 
     expect(response.status).toBe(503);
+  });
+
+  it('names the claimed prefix in a plain-text 503 when the kernel is not on the page', async () => {
+    const response = await handleDispatchMessage(new Map(), {
+      type: 'dispatch',
+      kernelId: 'k1',
+      prefix: 'cells',
+      request
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers['content-type']).toBe('text/plain');
+    expect(new TextDecoder().decode(response.body)).toContain('cells');
+  });
+
+  it('answers a plain-text 503 naming the prefix when the runtime is not running', async () => {
+    const backends = new Map([
+      [
+        'k1',
+        {
+          dispatchRequest: async () => {
+            throw new RuntimeUnavailableError('Worker runtime disposed');
+          }
+        }
+      ]
+    ]);
+
+    const response = await handleDispatchMessage(backends, {
+      type: 'dispatch',
+      kernelId: 'k1',
+      prefix: 'cells',
+      request
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers['content-type']).toBe('text/plain');
+    expect(new TextDecoder().decode(response.body)).toContain('cells');
+  });
+
+  it('does not turn an unrelated dispatch error into a 503', async () => {
+    const backends = new Map([
+      [
+        'k1',
+        {
+          dispatchRequest: async () => {
+            throw new TypeError('handler blew up');
+          }
+        }
+      ]
+    ]);
+
+    await expect(
+      handleDispatchMessage(backends, {
+        type: 'dispatch',
+        kernelId: 'k1',
+        prefix: 'cells',
+        request
+      })
+    ).rejects.toThrow('handler blew up');
   });
 });

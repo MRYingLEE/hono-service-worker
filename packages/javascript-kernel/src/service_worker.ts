@@ -9,7 +9,7 @@ import {
   toFetchResponse,
   toRuntimeRequest
 } from './service_worker_bridge';
-import { IClaim, resolveOwningKernel } from './service_worker_routing';
+import { IClaim, resolveOwningClaim } from './service_worker_routing';
 
 /**
  * Minimal Service worker global types. The package does not include the
@@ -42,6 +42,7 @@ let claims: IClaim[] = [];
 function dispatchToClient(
   client: IServiceWorkerClient,
   kernelId: string,
+  prefix: string,
   request: Awaited<ReturnType<typeof toRuntimeRequest>>
 ): Promise<IRuntimeResponse> {
   return new Promise<IRuntimeResponse>(resolve => {
@@ -49,7 +50,12 @@ function dispatchToClient(
     channel.port1.onmessage = event => {
       resolve(event.data as IRuntimeResponse);
     };
-    const message: IDispatchMessage = { type: 'dispatch', kernelId, request };
+    const message: IDispatchMessage = {
+      type: 'dispatch',
+      kernelId,
+      prefix,
+      request
+    };
     client.postMessage(message, [channel.port2]);
   });
 }
@@ -83,12 +89,12 @@ sw.addEventListener(
     clientId: string;
     respondWith(response: Promise<Response>): void;
   }) => {
-    const kernelId = resolveOwningKernel(
+    const claim = resolveOwningClaim(
       claims,
       event.request.url,
       event.clientId
     );
-    if (kernelId === null) {
+    if (claim === null) {
       return;
     }
     event.respondWith(
@@ -102,7 +108,12 @@ sw.addEventListener(
           });
         }
         const request = await toRuntimeRequest(event.request);
-        const response = await dispatchToClient(client, kernelId, request);
+        const response = await dispatchToClient(
+          client,
+          claim.kernelId,
+          claim.prefix,
+          request
+        );
         return toFetchResponse(response);
       })()
     );

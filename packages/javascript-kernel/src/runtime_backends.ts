@@ -11,6 +11,7 @@ import * as Comlink from 'comlink';
 import { JavaScriptExecutor } from './executor';
 import { normalizeError } from './errors';
 import { createRemoteRuntimeApi } from './runtime_remote';
+import { RuntimeUnavailableError } from './runtime_unavailable';
 import type {
   IRemoteRuntimeApi,
   IRuntimeRequest,
@@ -246,7 +247,7 @@ export class IFrameRuntimeBackend extends AbstractRuntimeBackend {
    * Dispose iframe resources.
    */
   dispose(): void {
-    this._ready.reject(new Error('IFrame runtime disposed'));
+    this._ready.reject(new RuntimeUnavailableError('IFrame runtime disposed'));
 
     if (this._remote) {
       void this._remote.dispose().catch(() => undefined);
@@ -310,7 +311,7 @@ export class IFrameRuntimeBackend extends AbstractRuntimeBackend {
           }
           settled = true;
           cleanup();
-          reject(new Error('IFrame runtime failed to load'));
+          reject(new RuntimeUnavailableError('IFrame runtime failed to load'));
         };
       });
 
@@ -501,7 +502,7 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
    * Dispose worker resources.
    */
   dispose(): void {
-    this._ready.reject(new Error('Worker runtime disposed'));
+    this._ready.reject(new RuntimeUnavailableError('Worker runtime disposed'));
 
     if (this._remote) {
       void this._remote.dispose().catch(() => undefined);

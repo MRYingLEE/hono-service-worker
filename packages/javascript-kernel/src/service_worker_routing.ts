@@ -9,6 +9,18 @@ export function resolveOwningKernel(
   requestUrl: string,
   issuingContextId: string
 ): string | null {
+  const claim = resolveOwningClaim(claims, requestUrl, issuingContextId);
+  return claim === null ? null : claim.kernelId;
+}
+
+/**
+ * The longest matching claim for a request, or null if none matches.
+ */
+export function resolveOwningClaim(
+  claims: IClaim[],
+  requestUrl: string,
+  issuingContextId: string
+): IClaim | null {
   const path = new URL(requestUrl).pathname;
   let best: IClaim | null = null;
   for (const claim of claims) {
@@ -22,7 +34,7 @@ export function resolveOwningKernel(
       best = claim;
     }
   }
-  return best === null ? null : best.kernelId;
+  return best;
 }
 
 function matchesPrefix(path: string, prefix: string): boolean {

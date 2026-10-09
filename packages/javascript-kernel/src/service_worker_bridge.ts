@@ -2,6 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
+import { RuntimeUnavailableError } from './runtime_unavailable';
 import { IClaim } from './service_worker_routing';
 
 /**
@@ -20,6 +21,7 @@ export interface IClaimMessage {
 export interface IDispatchMessage {
   type: 'dispatch';
   kernelId: string;
+  prefix: string;
   request: IRuntimeRequest;
 }
 
@@ -101,8 +103,31 @@ export interface IDispatchTarget {
 }
 
 /**
+ * Plain-text 503 naming the claimed prefix, used when no Runtime can answer.
+ */
+function unavailableResponse(prefix: string): IRuntimeResponse {
+  return {
+    status: 503,
+    headers: { 'content-type': 'text/plain' },
+    body: new TextEncoder().encode(
+      `Runtime for ${prefix} is not running`
+    )
+  };
+}
+
+/**
+ * True when a dispatch failed because the Runtime is disposed or failed to
+ * load, as opposed to an error raised while handling the request.
+ */
+function isRuntimeUnavailable(error: unknown): boolean {
+  return error instanceof RuntimeUnavailableError;
+}
+
+/**
  * Handle a dispatch message on the page by forwarding the request to the
- * backend of the Kernel it names. A Kernel that is not on this page yields a 503.
+ * backend of the Kernel it names. When that Kernel has no running Runtime
+ * (not on this page, or its backend was disposed or failed to load), the
+ * reply is a 503 naming the claimed prefix. Other errors propagate.
  */
 export async function handleDispatchMessage(
   backends: Map<string, IDispatchTarget>,
@@ -110,13 +135,14 @@ export async function handleDispatchMessage(
 ): Promise<IRuntimeResponse> {
   const backend = backends.get(message.kernelId);
   if (!backend) {
-    return {
-      status: 503,
-      headers: { 'content-type': 'text/plain' },
-      body: new TextEncoder().encode(
-        `Kernel ${message.kernelId} is not available`
-      )
-    };
+    return unavailableResponse(message.prefix);
   }
-  return backend.dispatchRequest(message.request);
+  try {
+    return await backend.dispatchRequest(message.request);
+  } catch (error) {
+    if (isRuntimeUnavailable(error)) {
+      return unavailableResponse(message.prefix);
+    }
+    throw error;
+  }
 }

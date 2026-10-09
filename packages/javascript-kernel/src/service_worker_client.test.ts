@@ -92,6 +92,7 @@ describe('connectServiceWorker', () => {
     const message: IDispatchMessage = {
       type: 'dispatch',
       kernelId: 'k1',
+      prefix: 'k1',
       request: { method: 'GET', url: 'http://x/k1/a' }
     };
     container.listener?.({

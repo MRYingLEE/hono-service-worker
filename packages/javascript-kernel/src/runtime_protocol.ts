@@ -113,7 +113,8 @@ export interface IRemoteRuntimeApi {
   execute(
     code: string,
     executionCount: number,
-    parentMessageId?: string
+    parentMessageId?: string,
+    cellId?: string
   ): Promise<KernelMessage.IExecuteReplyMsg['content']>;
   preloadModule(moduleName: string): Promise<void>;
   registerCommTarget(

@@ -11,6 +11,32 @@ import type {
   RuntimeOutputMessage
 } from './runtime_protocol';
 
+interface IAppCall {
+  method: string;
+  args: unknown[];
+}
+
+/**
+ * Hono methods that register routes or app-level handlers. Calls to these are
+ * recorded per cell so the route table can be rebuilt when a cell re-runs.
+ */
+const REGISTRATION_METHODS = new Set([
+  'get',
+  'post',
+  'put',
+  'delete',
+  'patch',
+  'options',
+  'head',
+  'all',
+  'on',
+  'use',
+  'route',
+  'mount',
+  'notFound',
+  'onError'
+]);
+
 /**
  * Create a Comlink runtime API bound to the provided global scope.
  */
@@ -21,6 +47,8 @@ export function createRemoteRuntimeApi(
   let evaluator: JavaScriptRuntimeEvaluator | null = null;
   let app: Hono = new Hono();
   const claimedPrefixes = new Set<string>();
+  // Keyed by cell id; insertion order keeps a re-run cell in its original position.
+  const appCallsByCell = new Map<string, IAppCall[]>();
 
   const ensureEvaluator = (): JavaScriptRuntimeEvaluator => {
     if (!evaluator) {
@@ -38,6 +66,45 @@ export function createRemoteRuntimeApi(
     });
   };
 
+  /**
+   * Wrap the live app so cell registrations are captured instead of applied
+   * directly. Other properties are forwarded to the live app.
+   */
+  const createRecordingApp = (calls: IAppCall[]): Hono => {
+    const target = app;
+    const recorder: Hono = new Proxy(target, {
+      get(obj, prop) {
+        if (typeof prop === 'string' && REGISTRATION_METHODS.has(prop)) {
+          return (...args: unknown[]) => {
+            calls.push({ method: prop, args });
+            return recorder;
+          };
+        }
+        const value = Reflect.get(obj, prop, obj);
+        return typeof value === 'function' ? value.bind(obj) : value;
+      }
+    });
+    return recorder;
+  };
+
+  /**
+   * Build a fresh app by replaying every cell's recorded registrations in order.
+   */
+  const rebuildApp = (): void => {
+    const next = new Hono();
+    const target = next as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
+    for (const calls of appCallsByCell.values()) {
+      for (const { method, args } of calls) {
+        target[method].apply(next, args);
+      }
+    }
+    app = next;
+    globalScope.app = next;
+  };
+
   return {
     async initialize(
       options: Parameters<IRemoteRuntimeApi['initialize']>[0],
@@ -48,6 +115,7 @@ export function createRemoteRuntimeApi(
       }
       evaluator?.dispose();
       app = new Hono();
+      appCallsByCell.clear();
       claimedPrefixes.clear();
       globalScope.app = app;
       globalScope.claimPrefix = (prefix: string): void => {
@@ -65,9 +133,20 @@ export function createRemoteRuntimeApi(
     async execute(
       code: string,
       executionCount: number,
-      parentMessageId?: string
+      parentMessageId?: string,
+      cellId?: string
     ) {
-      return ensureEvaluator().execute(code, executionCount, parentMessageId);
+      const runtime = ensureEvaluator();
+      // Without a cell id, each execution gets its own record so its routes accumulate.
+      const key = cellId ?? `execution:${executionCount}`;
+      const calls: IAppCall[] = [];
+      appCallsByCell.set(key, calls);
+      globalScope.app = createRecordingApp(calls);
+      try {
+        return await runtime.execute(code, executionCount, parentMessageId);
+      } finally {
+        rebuildApp();
+      }
     },
 
     async preloadModule(moduleName: string): Promise<void> {

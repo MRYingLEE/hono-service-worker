@@ -106,7 +106,8 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
       return await this._backend.execute(
         content.code,
         this.executionCount,
-        this.parentHeader?.msg_id
+        this.parentHeader?.msg_id,
+        this.parent?.metadata?.cellId as string | undefined
       );
     } catch (error) {
       const normalized = this.normalizeError(error);

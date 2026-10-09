@@ -56,7 +56,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   /**
    * The active runtime backend.
    */
-  protected get runtimeBackend(): IRuntimeBackend {
+  get runtimeBackend(): IRuntimeBackend {
     return this._backend;
   }
 

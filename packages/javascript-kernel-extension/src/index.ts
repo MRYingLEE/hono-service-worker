@@ -15,9 +15,13 @@ import { Signal } from '@lumino/signaling';
 
 import {
   IJavaScriptKernelStartupRegistry,
-  JavaScriptKernel
+  JavaScriptKernel,
+  connectServiceWorker
 } from '@jupyterlite/javascript-kernel';
-import type { RuntimeMode } from '@jupyterlite/javascript-kernel';
+import type {
+  IDispatchTarget,
+  RuntimeMode
+} from '@jupyterlite/javascript-kernel';
 
 import jsLogo32 from '../style/icons/logo-32x32.png';
 
@@ -126,6 +130,11 @@ class JavaScriptKernelStartupRegistry implements IJavaScriptKernelStartupRegistr
 namespace Private {
   export const startupExtensions: JavaScriptKernel.IStartupExtension[] = [];
   export const kernels = new Set<JavaScriptKernel>();
+  /**
+   * Runtime backends of live kernels, keyed by kernel id, for service worker
+   * dispatch.
+   */
+  export const backends = new Map<string, IDispatchTarget>();
 
   const kernelCreatedOwner = {};
   export const kernelCreated = new Signal<
@@ -138,6 +147,7 @@ namespace Private {
    */
   const trackKernel = (kernel: JavaScriptKernel): void => {
     kernels.add(kernel);
+    backends.set(kernel.id, kernel.runtimeBackend);
     void Promise.all(
       startupExtensions.map(extension =>
         kernel.applyStartupExtension(extension)
@@ -150,6 +160,7 @@ namespace Private {
     });
     const untrackKernel = (sender: JavaScriptKernel): void => {
       kernels.delete(sender);
+      backends.delete(sender.id);
       sender.disposed.disconnect(untrackKernel);
     };
     kernel.disposed.connect(untrackKernel);
@@ -203,9 +214,35 @@ const kernelWorker: JupyterFrontEndPlugin<void> = {
   }
 };
 
+/**
+ * Plugin registering the service worker that routes notebook page requests
+ * to the runtime of the kernel that claimed them.
+ */
+const serviceWorker: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlite/javascript-kernel-extension:service-worker',
+  autoStart: true,
+  activate: () => {
+    if (!('serviceWorker' in navigator)) {
+      return;
+    }
+    const url = new URL(
+      './javascript-kernel-service-worker.js',
+      document.baseURI
+    ).href;
+    connectServiceWorker(navigator.serviceWorker, url, Private.backends).catch(
+      error => {
+        console.error(
+          '[javascript-kernel] Failed to register the service worker.',
+          error
+        );
+      }
+    );
+  }
+};
+
 const plugins: Array<
   | JupyterFrontEndPlugin<IJavaScriptKernelStartupRegistry>
   | JupyterFrontEndPlugin<void>
-> = [startupExtensionsRegistry, kernelIFrame, kernelWorker];
+> = [startupExtensionsRegistry, kernelIFrame, kernelWorker, serviceWorker];
 
 export default plugins;

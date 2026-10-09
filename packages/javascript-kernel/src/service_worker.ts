@@ -1,0 +1,110 @@
+// Copyright (c) Jupyter Development Team.
+// Distributed under the terms of the Modified BSD License.
+
+import { IRuntimeResponse } from './runtime_protocol';
+import {
+  applyClaimMessage,
+  IClaimMessage,
+  IDispatchMessage,
+  toFetchResponse,
+  toRuntimeRequest
+} from './service_worker_bridge';
+import { IClaim, resolveOwningKernel } from './service_worker_routing';
+
+/**
+ * Minimal Service worker global types. The package does not include the
+ * WebWorker lib, so the parts used here are declared locally.
+ */
+interface IServiceWorkerClient {
+  id: string;
+  postMessage(message: unknown, transfer: Transferable[]): void;
+}
+
+interface IServiceWorkerGlobal {
+  skipWaiting(): Promise<void>;
+  clients: {
+    claim(): Promise<void>;
+    get(id: string): Promise<IServiceWorkerClient | undefined>;
+  };
+  addEventListener(type: 'install', listener: () => void): void;
+  addEventListener(type: 'activate', listener: (event: any) => void): void;
+  addEventListener(type: 'message', listener: (event: any) => void): void;
+  addEventListener(type: 'fetch', listener: (event: any) => void): void;
+}
+
+const sw = self as unknown as IServiceWorkerGlobal;
+
+let claims: IClaim[] = [];
+
+/**
+ * Ask the page that issued a request for the response of its Kernel.
+ */
+function dispatchToClient(
+  client: IServiceWorkerClient,
+  kernelId: string,
+  request: Awaited<ReturnType<typeof toRuntimeRequest>>
+): Promise<IRuntimeResponse> {
+  return new Promise<IRuntimeResponse>(resolve => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = event => {
+      resolve(event.data as IRuntimeResponse);
+    };
+    const message: IDispatchMessage = { type: 'dispatch', kernelId, request };
+    client.postMessage(message, [channel.port2]);
+  });
+}
+
+sw.addEventListener('install', () => {
+  void sw.skipWaiting();
+});
+
+sw.addEventListener(
+  'activate',
+  (event: { waitUntil(p: Promise<void>): void }) => {
+    event.waitUntil(sw.clients.claim());
+  }
+);
+
+sw.addEventListener(
+  'message',
+  (event: { data: unknown; source: { id: string } }) => {
+    const message = event.data as IClaimMessage | undefined;
+    if (!message || (message.type !== 'claim' && message.type !== 'release')) {
+      return;
+    }
+    claims = applyClaimMessage(claims, message, event.source.id);
+  }
+);
+
+sw.addEventListener(
+  'fetch',
+  (event: {
+    request: Request;
+    clientId: string;
+    respondWith(response: Promise<Response>): void;
+  }) => {
+    const kernelId = resolveOwningKernel(
+      claims,
+      event.request.url,
+      event.clientId
+    );
+    if (kernelId === null) {
+      return;
+    }
+    event.respondWith(
+      (async () => {
+        const client = await sw.clients.get(event.clientId);
+        if (!client) {
+          return toFetchResponse({
+            status: 503,
+            headers: { 'content-type': 'text/plain' },
+            body: 'Issuing client is gone'
+          });
+        }
+        const request = await toRuntimeRequest(event.request);
+        const response = await dispatchToClient(client, kernelId, request);
+        return toFetchResponse(response);
+      })()
+    );
+  }
+);

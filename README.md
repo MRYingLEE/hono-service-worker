@@ -88,6 +88,43 @@ handler)`. The default export is used when `exportName` is omitted. Disposing
 a startup registration calls its optional `deactivate` callback for active
 kernels.
 
+### Cell-defined routes
+
+A cell can serve HTTP requests from its kernel's Runtime. Inside a cell, the
+global `app` is a [Hono](https://hono.dev) app, and `claimPrefix(prefix)`
+claims a URL prefix for the kernel. Requests under a claimed prefix reach the
+handlers registered on `app` while the kernel's Runtime is running.
+
+```typescript
+claimPrefix('/api/');
+
+app.get('/api/hello', c => c.json({ message: 'hello' }));
+```
+
+A cell can call `claimedPrefixes()` to get a Promise that resolves to the
+prefixes its kernel has claimed.
+
+Claims follow these rules:
+
+- Prefixes match whole path segments, and the longest matching prefix wins.
+- Re-running a cell replaces the routes that cell registered.
+- Restarting the kernel releases its claims and clears its routes.
+- Claiming a prefix again from the same client context replaces the earlier
+  claim (last claim wins).
+- Each request is routed only to the Runtime of the kernel that claimed the
+  prefix.
+
+Responses:
+
+- `404` for a path under a claimed prefix that no route matches.
+- `500` when a handler throws. The error is also reported to the notebook as
+  an `execute_error` output.
+- `503` with a plain-text body (`Runtime for <prefix> is not running`) when
+  the owning kernel has no running Runtime.
+
+A `claimedPrefixes()` request that is still pending when the kernel restarts
+may never resolve.
+
 ### Worker mode limitations
 
 Web Workers do not expose DOM APIs. In `JavaScript (Web Worker)`, APIs such as `document`, direct element access, and other main-thread-only browser APIs are unavailable.

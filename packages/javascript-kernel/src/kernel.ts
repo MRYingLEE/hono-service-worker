@@ -14,6 +14,7 @@ import {
 } from './runtime_backends';
 import type { RuntimeMode, RuntimeOutputMessage } from './runtime_protocol';
 import {
+  claimedPrefixes,
   claimPrefix,
   IServiceWorkerContainer,
   releasePrefix
@@ -47,7 +48,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
       return;
     }
 
-    for (const prefix of [...this._claimedPrefixes]) {
+    for (const prefix of claimedPrefixes(this.id)) {
       this.releaseClaim(prefix);
     }
     this._comms.clear();
@@ -442,7 +443,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
         );
         break;
       case 'claim_prefix':
-        this.sendClaim(message.prefix);
+        this.sendClaim(message.prefix, parentHeader);
         break;
       case 'release_prefix':
         this.releaseClaim(message.prefix);
@@ -453,19 +454,29 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   }
 
   /**
-   * Ask the Service worker to route a prefix to this kernel.
+   * Ask the Service worker to route a prefix to this kernel, then print the
+   * Kernel's resulting claim set to the cell.
    *
    * A repeated claim is re-posted so the Service worker replaces the earlier one.
    */
-  private sendClaim(prefix: string): void {
+  private sendClaim(
+    prefix: string,
+    parentHeader: KernelMessage.IHeader<KernelMessage.MessageType> | undefined
+  ): void {
     const container = this._serviceWorker;
     if (!container) {
       return;
     }
-    this._claimedPrefixes.add(prefix);
     claimPrefix(container, this.id, prefix).catch(error => {
       console.warn(`Failed to claim prefix ${prefix}`, error);
     });
+    this.stream(
+      {
+        name: 'stdout',
+        text: `Claimed prefixes: ${claimedPrefixes(this.id).join(', ')}\n`
+      },
+      parentHeader
+    );
   }
 
   /**
@@ -473,7 +484,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
    */
   private releaseClaim(prefix: string): void {
     const container = this._serviceWorker;
-    if (!container || !this._claimedPrefixes.delete(prefix)) {
+    if (!container || !claimedPrefixes(this.id).includes(prefix)) {
       return;
     }
     releasePrefix(container, this.id, prefix).catch(error => {
@@ -579,7 +590,6 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
     null;
   private _runtimeMode: RuntimeMode;
   private _serviceWorker?: IServiceWorkerContainer;
-  private _claimedPrefixes = new Set<string>();
 }
 
 /**
@@ -617,8 +627,7 @@ export namespace JavaScriptKernel {
    * Runtime context available from `onRuntimeReady`.
    */
   export type IRuntimeReadyContext =
-    | IIFrameRuntimeReadyContext
-    | IWorkerRuntimeReadyContext;
+    IIFrameRuntimeReadyContext | IWorkerRuntimeReadyContext;
 
   /**
    * A comm target handler exported by a startup module.

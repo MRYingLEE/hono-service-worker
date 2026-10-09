@@ -8,6 +8,7 @@ import type {
   IDispatchTarget
 } from './service_worker_bridge';
 import {
+  claimedPrefixes,
   claimPrefix,
   connectServiceWorker,
   IServiceWorkerContainer,
@@ -119,6 +120,35 @@ describe('claimPrefix / releasePrefix', () => {
       { type: 'claim', kernelId: 'k1', prefix: '/k1' },
       { type: 'release', kernelId: 'k1', prefix: '/k1' }
     ]);
+  });
+});
+
+describe('claimedPrefixes', () => {
+  it('returns the prefixes claimed by a kernel, in claim order', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+
+    await claimPrefix(container, 'claimed-k1', '/a/');
+    await claimPrefix(container, 'claimed-k1', '/b/');
+    await claimPrefix(container, 'claimed-k2', '/c/');
+
+    expect(claimedPrefixes('claimed-k1')).toEqual(['/a/', '/b/']);
+    expect(claimedPrefixes('claimed-k2')).toEqual(['/c/']);
+  });
+
+  it('drops prefixes once released', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+
+    await claimPrefix(container, 'released-k1', '/a/');
+    await claimPrefix(container, 'released-k1', '/b/');
+    await releasePrefix(container, 'released-k1', '/a/');
+
+    expect(claimedPrefixes('released-k1')).toEqual(['/b/']);
+  });
+
+  it('returns an empty list for an unknown kernel', () => {
+    expect(claimedPrefixes('never-claimed')).toEqual([]);
   });
 });
 

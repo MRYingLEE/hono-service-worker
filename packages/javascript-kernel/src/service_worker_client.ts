@@ -61,6 +61,15 @@ export async function connectServiceWorker(
   await container.register(url);
 }
 
+const claimsByKernel = new Map<string, Set<string>>();
+
+/**
+ * Prefixes currently claimed by a Kernel, in claim order.
+ */
+export function claimedPrefixes(kernelId: string): string[] {
+  return [...(claimsByKernel.get(kernelId) ?? [])];
+}
+
 /**
  * Ask the Service worker to route the prefix to a Kernel for this page.
  */
@@ -69,6 +78,12 @@ export async function claimPrefix(
   kernelId: string,
   prefix: string
 ): Promise<void> {
+  let prefixes = claimsByKernel.get(kernelId);
+  if (!prefixes) {
+    prefixes = new Set<string>();
+    claimsByKernel.set(kernelId, prefixes);
+  }
+  prefixes.add(prefix);
   await postToActive(container, { type: 'claim', kernelId, prefix });
 }
 
@@ -80,6 +95,11 @@ export async function releasePrefix(
   kernelId: string,
   prefix: string
 ): Promise<void> {
+  const prefixes = claimsByKernel.get(kernelId);
+  prefixes?.delete(prefix);
+  if (prefixes?.size === 0) {
+    claimsByKernel.delete(kernelId);
+  }
   await postToActive(container, { type: 'release', kernelId, prefix });
 }
 

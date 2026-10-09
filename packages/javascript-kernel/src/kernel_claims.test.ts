@@ -6,12 +6,18 @@ type OnOutput = (message: { type: string; [key: string]: unknown }) => void;
 // so tests can simulate runtime messages without a real worker or iframe.
 const backendOnOutput: OnOutput[] = [];
 
+// Records every stream output a kernel publishes to its cell.
+const streamOutputs: Array<{ name: string; text: string }> = [];
+
 jest.doMock('@jupyterlite/services', () => ({
   BaseKernel: class {
     id: string;
     isDisposed = false;
     constructor(options: { id: string }) {
       this.id = options.id;
+    }
+    stream(content: { name: string; text: string }): void {
+      streamOutputs.push(content);
     }
     dispose(): void {
       this.isDisposed = true;
@@ -46,7 +52,11 @@ class FakeContainer {
   readonly calls: IClaimCall[] = [];
   readonly ready = Promise.resolve({
     active: {
-      postMessage: (message: { type: 'claim' | 'release'; kernelId: string; prefix: string }) => {
+      postMessage: (message: {
+        type: 'claim' | 'release';
+        kernelId: string;
+        prefix: string;
+      }) => {
         this.calls.push({
           kind: message.type,
           kernelId: message.kernelId,
@@ -63,6 +73,8 @@ class FakeContainer {
   addEventListener(): void {}
 }
 
+const createdKernels: any[] = [];
+
 const createKernel = async (
   id: string,
   container: FakeContainer
@@ -78,6 +90,7 @@ const createKernel = async (
   } as unknown as ConstructorParameters<typeof JavaScriptKernel>[0]);
   const onOutput = backendOnOutput[before];
   expect(onOutput).toBeDefined();
+  createdKernels.push(kernel);
   return { kernel, onOutput };
 };
 
@@ -85,11 +98,24 @@ const claim = (onOutput: OnOutput, prefix: string): void => {
   onOutput({ type: 'claim_prefix', prefix });
 };
 
-const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
+const release = (onOutput: OnOutput, prefix: string): void => {
+  onOutput({ type: 'release_prefix', prefix });
+};
+
+const flush = (): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, 0));
 
 describe('kernel claim lifecycle', () => {
   beforeEach(() => {
     backendOnOutput.length = 0;
+    streamOutputs.length = 0;
+  });
+
+  afterEach(() => {
+    // Disposing releases claims in the shared registry so tests stay isolated.
+    for (const kernel of createdKernels.splice(0)) {
+      kernel.dispose();
+    }
   });
 
   it('loads kernel.ts under Jest', async () => {
@@ -147,7 +173,10 @@ describe('kernel claim lifecycle', () => {
 
     kernel.dispose();
     await flush();
-    const { onOutput: nextOnOutput } = await createKernel('kernel-a', container);
+    const { onOutput: nextOnOutput } = await createKernel(
+      'kernel-a',
+      container
+    );
     claim(nextOnOutput, '/api/');
     await flush();
 
@@ -160,7 +189,10 @@ describe('kernel claim lifecycle', () => {
 
   it('keeps another kernel claims intact when one kernel is disposed', async () => {
     const container = new FakeContainer();
-    const { kernel: kernelA, onOutput: onOutputA } = await createKernel('kernel-a', container);
+    const { kernel: kernelA, onOutput: onOutputA } = await createKernel(
+      'kernel-a',
+      container
+    );
     const { onOutput: onOutputB } = await createKernel('kernel-b', container);
     claim(onOutputA, '/api/');
     claim(onOutputB, '/docs/');
@@ -171,6 +203,95 @@ describe('kernel claim lifecycle', () => {
 
     expect(container.calls.filter(call => call.kind === 'release')).toEqual([
       { kind: 'release', kernelId: 'kernel-a', prefix: '/api/' }
+    ]);
+  });
+
+  it('exports claimedPrefixes and reports claims made by a kernel', async () => {
+    const { claimedPrefixes } = await import('./service_worker_client');
+    const container = new FakeContainer();
+    const { onOutput } = await createKernel('kernel-a', container);
+
+    expect(claimedPrefixes('kernel-a')).toEqual([]);
+    claim(onOutput, '/api/');
+    claim(onOutput, '/docs/');
+    await flush();
+
+    expect(claimedPrefixes('kernel-a')).toEqual(['/api/', '/docs/']);
+    expect(claimedPrefixes('kernel-b')).toEqual([]);
+  });
+
+  it('removes a prefix from claimedPrefixes after its release', async () => {
+    const { claimedPrefixes } = await import('./service_worker_client');
+    const container = new FakeContainer();
+    const { onOutput } = await createKernel('kernel-a', container);
+    claim(onOutput, '/api/');
+    claim(onOutput, '/docs/');
+    await flush();
+
+    release(onOutput, '/api/');
+    await flush();
+
+    expect(claimedPrefixes('kernel-a')).toEqual(['/docs/']);
+  });
+
+  it('empties claimedPrefixes when the kernel is disposed', async () => {
+    const { claimedPrefixes } = await import('./service_worker_client');
+    const container = new FakeContainer();
+    const { kernel, onOutput } = await createKernel('kernel-a', container);
+    claim(onOutput, '/api/');
+    await flush();
+
+    kernel.dispose();
+    await flush();
+
+    expect(claimedPrefixes('kernel-a')).toEqual([]);
+  });
+
+  it('starts a restarted kernel with no claims carried over', async () => {
+    const { claimedPrefixes } = await import('./service_worker_client');
+    const container = new FakeContainer();
+    const { kernel, onOutput } = await createKernel('kernel-a', container);
+    claim(onOutput, '/api/');
+    await flush();
+
+    kernel.dispose();
+    await flush();
+    const { onOutput: nextOnOutput } = await createKernel(
+      'kernel-a',
+      container
+    );
+
+    expect(claimedPrefixes('kernel-a')).toEqual([]);
+
+    claim(nextOnOutput, '/docs/');
+    await flush();
+
+    expect(claimedPrefixes('kernel-a')).toEqual(['/docs/']);
+  });
+
+  it('prints the resulting claim set in the cell output after each claim', async () => {
+    const container = new FakeContainer();
+    const { onOutput } = await createKernel('kernel-a', container);
+
+    claim(onOutput, '/api/');
+    claim(onOutput, '/docs/');
+    await flush();
+
+    expect(streamOutputs).toEqual([
+      { name: 'stdout', text: 'Claimed prefixes: /api/\n' },
+      { name: 'stdout', text: 'Claimed prefixes: /api/, /docs/\n' }
+    ]);
+  });
+
+  it('does not print a claim set when a prefix is released', async () => {
+    const container = new FakeContainer();
+    const { onOutput } = await createKernel('kernel-a', container);
+    claim(onOutput, '/api/');
+    release(onOutput, '/api/');
+    await flush();
+
+    expect(streamOutputs).toEqual([
+      { name: 'stdout', text: 'Claimed prefixes: /api/\n' }
     ]);
   });
 });

@@ -5,7 +5,8 @@ import {
   handleDispatchMessage,
   IClaimMessage,
   IDispatchMessage,
-  IDispatchTarget
+  IDispatchTarget,
+  IRuntimeMessage
 } from './service_worker_bridge';
 
 /**
@@ -82,9 +83,21 @@ export async function releasePrefix(
   await postToActive(container, { type: 'release', kernelId, prefix });
 }
 
+/**
+ * Tell the Service worker which client a Runtime of the Kernel runs in, so
+ * requests that Runtime issues are answered by that Kernel.
+ */
+export async function registerRuntimeClient(
+  container: IServiceWorkerContainer,
+  kernelId: string,
+  clientId: string
+): Promise<void> {
+  await postToActive(container, { type: 'runtime', kernelId, clientId });
+}
+
 async function postToActive(
   container: IServiceWorkerContainer,
-  message: IClaimMessage
+  message: IClaimMessage | IRuntimeMessage
 ): Promise<void> {
   const registration = await container.ready;
   if (!registration.active) {

@@ -292,3 +292,41 @@ describe('route table lifecycle', () => {
     expect((await get(second, '/hello')).status).toBe(404);
   });
 });
+
+describe('identify', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const setup = async () => {
+    const globalScope = globalThis as unknown as Record<string, any>;
+    const executor = new JavaScriptExecutor(globalScope);
+    const api = createRemoteRuntimeApi(globalScope, executor);
+    await api.initialize({ baseUrl: 'http://localhost/' }, () => undefined);
+    return api;
+  };
+
+  it('returns the clientId reported by the identity URL', async () => {
+    const fetchMock = jest.fn(async () => {
+      return new Response(JSON.stringify({ clientId: 'worker-1' }), {
+        headers: { 'content-type': 'application/json' }
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = await setup();
+
+    const clientId = await api.identify('http://runtime.local/__runtime_identity__');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://runtime.local/__runtime_identity__');
+    expect(clientId).toBe('worker-1');
+  });
+
+  it('returns null when the identity request is not ok', async () => {
+    globalThis.fetch = jest.fn(async () => new Response('nope', { status: 503 })) as unknown as typeof fetch;
+    const api = await setup();
+
+    await expect(api.identify('http://runtime.local/__runtime_identity__')).resolves.toBeNull();
+  });
+});

@@ -47,7 +47,6 @@ export function createRemoteRuntimeApi(
 ): IRemoteRuntimeApi {
   let evaluator: JavaScriptRuntimeEvaluator | null = null;
   let app: Hono = new Hono();
-  const claimedPrefixes = new Set<string>();
   // Keyed by cell id; insertion order keeps a re-run cell in its original position.
   const appCallsByCell = new Map<string, IAppCall[]>();
 
@@ -149,10 +148,12 @@ export function createRemoteRuntimeApi(
       outputCallback = onOutput;
       app = createAppWithErrorHandler();
       appCallsByCell.clear();
-      claimedPrefixes.clear();
       globalScope.app = app;
       globalScope.claimPrefix = (prefix: string): void => {
-        claimedPrefixes.add(prefix);
+        emitOutput(onOutput, { type: 'claim_prefix', prefix });
+      };
+      globalScope.releasePrefix = (prefix: string): void => {
+        emitOutput(onOutput, { type: 'release_prefix', prefix });
       };
       evaluator = new JavaScriptRuntimeEvaluator({
         globalScope,

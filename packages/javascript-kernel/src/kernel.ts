@@ -13,6 +13,11 @@ import {
   WorkerRuntimeBackend
 } from './runtime_backends';
 import type { RuntimeMode, RuntimeOutputMessage } from './runtime_protocol';
+import {
+  claimPrefix,
+  IServiceWorkerContainer,
+  releasePrefix
+} from './service_worker_client';
 
 /**
  * A kernel that executes JavaScript code in browser runtimes.
@@ -28,6 +33,9 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
     this._runtimeMode = options.runtime ?? 'iframe';
     this._executorFactory = options.executorFactory;
     this._startupExtensions = [...(options.startupExtensions ?? [])];
+    this._serviceWorker =
+      options.serviceWorker ??
+      (typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined);
     this._backend = this.createBackend(this._runtimeMode);
   }
 
@@ -39,6 +47,9 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
       return;
     }
 
+    for (const prefix of [...this._claimedPrefixes]) {
+      this.releaseClaim(prefix);
+    }
     this._comms.clear();
     this._backend.dispose();
     this._runtimeReadyContext = null;
@@ -429,9 +440,44 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
           parentHeader
         );
         break;
+      case 'claim_prefix':
+        this.sendClaim(message.prefix);
+        break;
+      case 'release_prefix':
+        this.releaseClaim(message.prefix);
+        break;
       default:
         break;
     }
+  }
+
+  /**
+   * Ask the Service worker to route a prefix to this kernel.
+   *
+   * A repeated claim is re-posted so the Service worker replaces the earlier one.
+   */
+  private sendClaim(prefix: string): void {
+    const container = this._serviceWorker;
+    if (!container) {
+      return;
+    }
+    this._claimedPrefixes.add(prefix);
+    claimPrefix(container, this.id, prefix).catch(error => {
+      console.warn(`Failed to claim prefix ${prefix}`, error);
+    });
+  }
+
+  /**
+   * Ask the Service worker to stop routing a prefix to this kernel.
+   */
+  private releaseClaim(prefix: string): void {
+    const container = this._serviceWorker;
+    if (!container || !this._claimedPrefixes.delete(prefix)) {
+      return;
+    }
+    releasePrefix(container, this.id, prefix).catch(error => {
+      console.warn(`Failed to release prefix ${prefix}`, error);
+    });
   }
 
   /**
@@ -531,6 +577,8 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   private _runtimeReadyContext: JavaScriptKernel.IRuntimeReadyContext | null =
     null;
   private _runtimeMode: RuntimeMode;
+  private _serviceWorker?: IServiceWorkerContainer;
+  private _claimedPrefixes = new Set<string>();
 }
 
 /**
@@ -603,5 +651,6 @@ export namespace JavaScriptKernel {
     runtime?: RuntimeMode;
     executorFactory?: IExecutorFactory;
     startupExtensions?: readonly IStartupExtension[];
+    serviceWorker?: IServiceWorkerContainer;
   }
 }

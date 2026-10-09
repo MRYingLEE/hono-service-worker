@@ -69,7 +69,9 @@ export type RuntimeOutputMessage =
       };
       metadata?: Record<string, unknown>;
       buffers?: ArrayBuffer[];
-    };
+    }
+  | { type: 'claim_prefix'; prefix: string }
+  | { type: 'release_prefix'; prefix: string };
 
 /**
  * Callback invoked when a runtime emits output.

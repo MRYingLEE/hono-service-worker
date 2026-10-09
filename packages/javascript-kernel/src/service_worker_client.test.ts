@@ -12,6 +12,7 @@ import {
   claimPrefix,
   connectServiceWorker,
   IServiceWorkerContainer,
+  IServiceWorkerRegistration,
   registerRuntimeClient,
   releasePrefix
 } from './service_worker_client';
@@ -34,20 +35,36 @@ class FakeWorker {
 
 class FakeContainer implements IServiceWorkerContainer {
   listener:
-    ((event: { data: unknown; ports: readonly MessagePort[] }) => void) | null =
-    null;
+    | ((event: { data: unknown; ports: readonly MessagePort[] }) => void)
+    | null = null;
   registeredUrl: string | null = null;
   registerCount = 0;
   worker = new FakeWorker();
+  private registration: IServiceWorkerRegistration | null = null;
 
-  register(url: string): Promise<{ active: FakeWorker }> {
+  register(url: string): Promise<IServiceWorkerRegistration> {
     this.registerCount++;
     this.registeredUrl = url;
-    return Promise.resolve({ active: this.worker });
+    this.worker = new FakeWorker();
+    this.registration = {
+      active: {
+        scriptURL: url,
+        postMessage: data => this.worker.postMessage(data)
+      }
+    };
+    return Promise.resolve(this.registration);
   }
 
-  get ready(): Promise<{ active: FakeWorker }> {
-    return Promise.resolve({ active: this.worker });
+  getRegistrations(): Promise<readonly IServiceWorkerRegistration[]> {
+    return Promise.resolve(this.registration ? [this.registration] : []);
+  }
+
+  get ready(): Promise<IServiceWorkerRegistration> {
+    return Promise.resolve(this.registration as IServiceWorkerRegistration);
+  }
+
+  unregister(): void {
+    this.registration = null;
   }
 
   addEventListener(
@@ -162,5 +179,40 @@ describe('registerRuntimeClient', () => {
     expect(container.worker.posted).toEqual([
       { type: 'runtime', kernelId: 'k1', clientId: 'worker-1' }
     ]);
+  });
+});
+
+describe('when the Service worker registration is lost', () => {
+  it('registers the Service worker again and replays claims and runtimes', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+    await claimPrefix(container, 'replay-k1', '/a/');
+    await registerRuntimeClient(container, 'replay-k1', 'worker-replay');
+    container.unregister();
+
+    await claimPrefix(container, 'replay-k1', '/b/');
+
+    expect(container.registerCount).toBe(2);
+    expect(container.worker.posted).toEqual(
+      expect.arrayContaining([
+        { type: 'claim', kernelId: 'replay-k1', prefix: '/a/' },
+        {
+          type: 'runtime',
+          kernelId: 'replay-k1',
+          clientId: 'worker-replay'
+        },
+        { type: 'claim', kernelId: 'replay-k1', prefix: '/b/' }
+      ])
+    );
+  });
+
+  it('does not register again while the Service worker is active', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+
+    await claimPrefix(container, 'active-k1', '/a/');
+    await claimPrefix(container, 'active-k1', '/b/');
+
+    expect(container.registerCount).toBe(1);
   });
 });

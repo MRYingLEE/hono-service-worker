@@ -13,7 +13,10 @@ import {
  * Minimal view of a Service worker registration used by the page.
  */
 export interface IServiceWorkerRegistration {
-  active: { postMessage(data: unknown): void } | null;
+  active: {
+    readonly scriptURL?: string;
+    postMessage(data: unknown): void;
+  } | null;
 }
 
 /**
@@ -21,6 +24,7 @@ export interface IServiceWorkerRegistration {
  */
 export interface IServiceWorkerContainer {
   register(url: string): Promise<IServiceWorkerRegistration>;
+  getRegistrations(): Promise<readonly IServiceWorkerRegistration[]>;
   readonly ready: Promise<IServiceWorkerRegistration>;
   addEventListener(
     type: 'message',
@@ -28,7 +32,7 @@ export interface IServiceWorkerContainer {
   ): void;
 }
 
-const connected = new WeakSet<IServiceWorkerContainer>();
+const serviceWorkerUrls = new WeakMap<IServiceWorkerContainer, string>();
 
 /**
  * Register the Service worker once per container and answer its dispatch
@@ -39,10 +43,10 @@ export async function connectServiceWorker(
   url: string,
   backends: Map<string, IDispatchTarget>
 ): Promise<void> {
-  if (connected.has(container)) {
+  if (serviceWorkerUrls.has(container)) {
     return;
   }
-  connected.add(container);
+  serviceWorkerUrls.set(container, url);
 
   container.addEventListener('message', event => {
     const data = event.data as IDispatchMessage | undefined;
@@ -103,6 +107,8 @@ export async function releasePrefix(
   await postToActive(container, { type: 'release', kernelId, prefix });
 }
 
+const runtimeClients = new Map<string, string>();
+
 /**
  * Tell the Service worker which client a Runtime of the Kernel runs in, so
  * requests that Runtime issues are answered by that Kernel.
@@ -112,6 +118,7 @@ export async function registerRuntimeClient(
   kernelId: string,
   clientId: string
 ): Promise<void> {
+  runtimeClients.set(kernelId, clientId);
   await postToActive(container, { type: 'runtime', kernelId, clientId });
 }
 
@@ -119,9 +126,47 @@ async function postToActive(
   container: IServiceWorkerContainer,
   message: IClaimMessage | IRuntimeMessage
 ): Promise<void> {
+  const registration = await activeRegistration(container);
+  registration.active?.postMessage(message);
+}
+
+/**
+ * The active registration of the Kernel Service worker. jupyterlite-core
+ * unregisters every Service worker when its version changes, which removes
+ * this one; re-register it and replay the claims it lost.
+ */
+async function activeRegistration(
+  container: IServiceWorkerContainer
+): Promise<IServiceWorkerRegistration> {
+  const url = serviceWorkerUrls.get(container);
+  if (url === undefined) {
+    const registration = await container.ready;
+    if (!registration.active) {
+      throw new Error('No active Service worker');
+    }
+    return registration;
+  }
+
+  const registrations = await container.getRegistrations();
+  const current = registrations.find(
+    registration => registration.active?.scriptURL === url
+  );
+  if (current?.active) {
+    return current;
+  }
+
+  await container.register(url);
   const registration = await container.ready;
   if (!registration.active) {
     throw new Error('No active Service worker');
   }
-  registration.active.postMessage(message);
+  for (const [kernelId, prefixes] of claimsByKernel) {
+    for (const prefix of prefixes) {
+      registration.active.postMessage({ type: 'claim', kernelId, prefix });
+    }
+  }
+  for (const [kernelId, clientId] of runtimeClients) {
+    registration.active.postMessage({ type: 'runtime', kernelId, clientId });
+  }
+  return registration;
 }

@@ -4,12 +4,20 @@
 import { IRuntimeResponse } from './runtime_protocol';
 import {
   applyClaimMessage,
+  applyRuntimeMessage,
   IClaimMessage,
   IDispatchMessage,
+  IRuntimeEntry,
+  IRuntimeMessage,
   toFetchResponse,
   toRuntimeRequest
 } from './service_worker_bridge';
-import { IClaim, resolveOwningClaim } from './service_worker_routing';
+import {
+  IClaim,
+  isRuntimeIdentityUrl,
+  resolveOwningClaim,
+  resolveRuntimeClaim
+} from './service_worker_routing';
 
 /**
  * Minimal Service worker global types. The package does not include the
@@ -35,6 +43,7 @@ interface IServiceWorkerGlobal {
 const sw = self as unknown as IServiceWorkerGlobal;
 
 let claims: IClaim[] = [];
+let runtimes = new Map<string, IRuntimeEntry>();
 
 /**
  * Ask the page that issued a request for the response of its Kernel.
@@ -74,11 +83,18 @@ sw.addEventListener(
 sw.addEventListener(
   'message',
   (event: { data: unknown; source: { id: string } }) => {
-    const message = event.data as IClaimMessage | undefined;
-    if (!message || (message.type !== 'claim' && message.type !== 'release')) {
+    const message = event.data as
+      | IClaimMessage
+      | IRuntimeMessage
+      | undefined;
+    if (!message) {
       return;
     }
-    claims = applyClaimMessage(claims, message, event.source.id);
+    if (message.type === 'claim' || message.type === 'release') {
+      claims = applyClaimMessage(claims, message, event.source.id);
+    } else if (message.type === 'runtime') {
+      runtimes = applyRuntimeMessage(runtimes, message, event.source.id);
+    }
   }
 );
 
@@ -89,17 +105,34 @@ sw.addEventListener(
     clientId: string;
     respondWith(response: Promise<Response>): void;
   }) => {
-    const claim = resolveOwningClaim(
-      claims,
-      event.request.url,
-      event.clientId
-    );
+    const url = event.request.url;
+    if (isRuntimeIdentityUrl(url)) {
+      event.respondWith(
+        Promise.resolve(
+          new Response(JSON.stringify({ clientId: event.clientId }), {
+            headers: { 'content-type': 'application/json' }
+          })
+        )
+      );
+      return;
+    }
+
+    const runtime = runtimes.get(event.clientId);
+    const claim = runtime
+      ? resolveRuntimeClaim(
+          claims,
+          url,
+          runtime.ownerContextId,
+          runtime.kernelId
+        )
+      : resolveOwningClaim(claims, url, event.clientId);
     if (claim === null) {
       return;
     }
+    const ownerClientId = runtime ? runtime.ownerContextId : event.clientId;
     event.respondWith(
       (async () => {
-        const client = await sw.clients.get(event.clientId);
+        const client = await sw.clients.get(ownerClientId);
         if (!client) {
           return toFetchResponse({
             status: 503,

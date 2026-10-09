@@ -15,6 +15,24 @@ export interface IClaimMessage {
 }
 
 /**
+ * Message a Runtime sends, through its page, to register its own Client id
+ * with the Kernel that owns it.
+ */
+export interface IRuntimeMessage {
+  type: 'runtime';
+  kernelId: string;
+  clientId: string;
+}
+
+/**
+ * A Runtime Client registered with the Service worker.
+ */
+export interface IRuntimeEntry {
+  kernelId: string;
+  ownerContextId: string;
+}
+
+/**
  * Message the Service worker posts to a page asking its Kernel to dispatch
  * a request. The reply is sent on the transferred MessagePort.
  */
@@ -93,6 +111,23 @@ export function applyClaimMessage(
       prefix: message.prefix
     }
   ];
+}
+
+/**
+ * Record a Runtime Client as belonging to a Kernel and to the page that
+ * registered it. Re-registering the same Client replaces its entry.
+ */
+export function applyRuntimeMessage(
+  runtimes: Map<string, IRuntimeEntry>,
+  message: IRuntimeMessage,
+  ownerContextId: string
+): Map<string, IRuntimeEntry> {
+  const next = new Map(runtimes);
+  next.set(message.clientId, {
+    kernelId: message.kernelId,
+    ownerContextId
+  });
+  return next;
 }
 
 /**

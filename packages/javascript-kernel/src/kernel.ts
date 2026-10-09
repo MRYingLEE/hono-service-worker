@@ -309,6 +309,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
    */
   protected createBackend(runtimeMode: RuntimeMode): IRuntimeBackend {
     const options = {
+      kernelId: this.id,
       onOutput: (message: RuntimeOutputMessage) => {
         this.processRuntimeMessage(message);
       }

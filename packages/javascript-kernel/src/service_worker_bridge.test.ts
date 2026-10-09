@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import {
   applyClaimMessage,
+  applyRuntimeMessage,
   handleDispatchMessage,
   toFetchResponse,
   toRuntimeRequest
@@ -48,6 +49,37 @@ describe('toFetchResponse', () => {
     expect(response.status).toBe(201);
     expect(response.headers.get('content-type')).toBe('text/plain');
     expect(await response.text()).toBe('created');
+  });
+});
+
+describe('applyRuntimeMessage', () => {
+  it('records the Kernel and owning page for a Runtime client', () => {
+    const runtimes = applyRuntimeMessage(
+      new Map(),
+      { type: 'runtime', kernelId: 'kA', clientId: 'worker-1' },
+      'page-1'
+    );
+    expect(runtimes.get('worker-1')).toEqual({
+      kernelId: 'kA',
+      ownerContextId: 'page-1'
+    });
+  });
+
+  it('replaces the entry when the same Runtime client registers again', () => {
+    const first = applyRuntimeMessage(
+      new Map(),
+      { type: 'runtime', kernelId: 'kA', clientId: 'worker-1' },
+      'page-1'
+    );
+    const second = applyRuntimeMessage(
+      first,
+      { type: 'runtime', kernelId: 'kB', clientId: 'worker-1' },
+      'page-2'
+    );
+    expect(second.get('worker-1')).toEqual({
+      kernelId: 'kB',
+      ownerContextId: 'page-2'
+    });
   });
 });
 

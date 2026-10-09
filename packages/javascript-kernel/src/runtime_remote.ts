@@ -163,6 +163,15 @@ export function createRemoteRuntimeApi(
       });
     },
 
+    async identify(identityUrl: string): Promise<string | null> {
+      const response = await globalScope.fetch(identityUrl);
+      if (!response.ok) {
+        return null;
+      }
+      const body = (await response.json()) as { clientId?: unknown };
+      return typeof body.clientId === 'string' ? body.clientId : null;
+    },
+
     async execute(
       code: string,
       executionCount: number,

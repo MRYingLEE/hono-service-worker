@@ -110,6 +110,7 @@ export interface IRemoteRuntimeApi {
     options: IWorkerKernel.IOptions,
     onOutput: RuntimeOutputCallback
   ): Promise<void>;
+  identify(identityUrl: string): Promise<string | null>;
   execute(
     code: string,
     executionCount: number,

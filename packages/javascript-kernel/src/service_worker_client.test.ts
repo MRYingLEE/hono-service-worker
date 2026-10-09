@@ -11,6 +11,7 @@ import {
   claimPrefix,
   connectServiceWorker,
   IServiceWorkerContainer,
+  registerRuntimeClient,
   releasePrefix
 } from './service_worker_client';
 
@@ -117,6 +118,19 @@ describe('claimPrefix / releasePrefix', () => {
     expect(container.worker.posted).toEqual([
       { type: 'claim', kernelId: 'k1', prefix: '/k1' },
       { type: 'release', kernelId: 'k1', prefix: '/k1' }
+    ]);
+  });
+});
+
+describe('registerRuntimeClient', () => {
+  it('posts a runtime registration to the active worker', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+
+    await registerRuntimeClient(container, 'k1', 'worker-1');
+
+    expect(container.worker.posted).toEqual([
+      { type: 'runtime', kernelId: 'k1', clientId: 'worker-1' }
     ]);
   });
 });

@@ -12,6 +12,8 @@ import { JavaScriptExecutor } from './executor';
 import { normalizeError } from './errors';
 import { createRemoteRuntimeApi } from './runtime_remote';
 import { RuntimeUnavailableError } from './runtime_unavailable';
+import { registerRuntimeClient } from './service_worker_client';
+import { RUNTIME_IDENTITY_SEGMENT } from './service_worker_routing';
 import type {
   IRemoteRuntimeApi,
   IRuntimeRequest,
@@ -27,6 +29,36 @@ import type {
 export interface IRuntimeBackendOptions {
   onOutput: RuntimeOutputHandler;
   baseUrl?: string;
+  kernelId?: string;
+}
+
+/**
+ * Tell the Service Worker which client this Runtime runs in, so requests the
+ * Runtime issues reach its own Kernel. Failure is non-fatal: until the page is
+ * controlled by the Service Worker, requests fall through to the network.
+ */
+async function registerWithServiceWorker(
+  remote: IRemoteRuntimeApi,
+  kernelId: string | undefined,
+  baseUrl?: string
+): Promise<void> {
+  if (!kernelId || !navigator.serviceWorker) {
+    return;
+  }
+  try {
+    const base = new URL(resolveBaseUrl(baseUrl), globalThis.location.href);
+    if (!base.pathname.endsWith('/')) {
+      base.pathname += '/';
+    }
+    const clientId = await remote.identify(
+      new URL(RUNTIME_IDENTITY_SEGMENT, base).href
+    );
+    if (clientId) {
+      await registerRuntimeClient(navigator.serviceWorker, kernelId, clientId);
+    }
+  } catch {
+    // Not controlled by the Service Worker yet; nothing to register.
+  }
 }
 
 /**
@@ -371,6 +403,11 @@ export class IFrameRuntimeBackend extends AbstractRuntimeBackend {
         IFrameRuntimeBackend.STARTUP_TIMEOUT_MS,
         'IFrame runtime failed to initialize'
       );
+      await registerWithServiceWorker(
+        remote,
+        this._options.kernelId,
+        this._options.baseUrl
+      );
 
       await this._options.onReady?.({
         iframe: this._iframe,
@@ -537,6 +574,11 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
         ),
         WorkerRuntimeBackend.STARTUP_TIMEOUT_MS,
         'Worker runtime failed to initialize'
+      );
+      await registerWithServiceWorker(
+        remote,
+        this._options.kernelId,
+        this._options.baseUrl
       );
 
       await this._options.onReady?.({

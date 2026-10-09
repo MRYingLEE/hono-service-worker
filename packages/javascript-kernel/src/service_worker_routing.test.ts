@@ -1,5 +1,10 @@
 /// <reference types="jest" />
-import { IClaim, resolveOwningKernel } from './service_worker_routing';
+import {
+  IClaim,
+  isRuntimeIdentityUrl,
+  resolveOwningKernel,
+  resolveRuntimeClaim
+} from './service_worker_routing';
 
 const URL_BASE = 'https://example.org';
 
@@ -63,5 +68,42 @@ describe('resolveOwningKernel', () => {
     expect(
       resolveOwningKernel(afterRelease, `${URL_BASE}/api/users`, 'ctx-1')
     ).toBeNull();
+  });
+});
+
+describe('resolveRuntimeClaim', () => {
+  it('routes a Runtime request only to its own Kernel when two Kernels in one page claim the same prefix', () => {
+    const claims: IClaim[] = [
+      { kernelId: 'kA', issuingContextId: 'ctx-page', prefix: '/shared' },
+      { kernelId: 'kB', issuingContextId: 'ctx-page', prefix: '/shared' }
+    ];
+    expect(
+      resolveRuntimeClaim(claims, `${URL_BASE}/shared/x`, 'ctx-page', 'kB')
+    ).toEqual({ kernelId: 'kB', issuingContextId: 'ctx-page', prefix: '/shared' });
+  });
+
+  it('returns null when the Runtime\'s own Kernel holds no matching claim', () => {
+    const claims: IClaim[] = [
+      { kernelId: 'kA', issuingContextId: 'ctx-page', prefix: '/api' }
+    ];
+    expect(
+      resolveRuntimeClaim(claims, `${URL_BASE}/api/x`, 'ctx-page', 'kB')
+    ).toBeNull();
+  });
+});
+
+describe('isRuntimeIdentityUrl', () => {
+  it('recognises the reserved identity path under any directory', () => {
+    expect(isRuntimeIdentityUrl(`${URL_BASE}/__runtime_identity__`)).toBe(true);
+    expect(
+      isRuntimeIdentityUrl(`${URL_BASE}/lab/__runtime_identity__`)
+    ).toBe(true);
+  });
+
+  it('does not treat other paths as the identity path', () => {
+    expect(isRuntimeIdentityUrl(`${URL_BASE}/api/users`)).toBe(false);
+    expect(
+      isRuntimeIdentityUrl(`${URL_BASE}/__runtime_identity__/more`)
+    ).toBe(false);
   });
 });

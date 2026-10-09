@@ -10,3 +10,4 @@ export * from './runtime_evaluator';
 export * from './comm';
 export * from './widgets';
 export * from './startup';
+export * from './service_worker_routing';

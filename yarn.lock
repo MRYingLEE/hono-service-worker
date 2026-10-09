@@ -3030,7 +3030,9 @@ __metadata:
     "@jupyterlite/services": ^0.8.0
     "@lumino/coreutils": ^2.2.2
     "@lumino/disposable": ^2.1.5
+    "@rspack/core": ^2.1.7
     "@types/jest": ^26.0.10
+    "@types/node": "*"
     astring: ^1.9.0
     comlink: ^4.3.1
     hono: ^4.13.13

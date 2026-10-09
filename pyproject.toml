@@ -29,7 +29,12 @@ dynamic = ["version", "description", "authors", "urls", "keywords"]
 dev = [
     "jupyterlab>=4.6.0,<5",
     "jupyter-builder>=1.2.0,<2",
+    "jupyterlite-core>=0.9.0a2",
+    "pytest>=8",
 ]
+
+[project.entry-points."jupyterlite.addon.v0"]
+javascript_kernel = "jupyterlite_javascript_kernel.addon:JavaScriptKernelAddon"
 
 [tool.hatch.version]
 source = "nodejs"
@@ -38,8 +43,14 @@ source = "nodejs"
 fields = ["description", "authors", "urls", "keywords"]
 
 [tool.hatch.build.targets.sdist]
-artifacts = ["jupyterlite_javascript_kernel/labextension"]
+artifacts = [
+    "jupyterlite_javascript_kernel/labextension",
+    "jupyterlite_javascript_kernel/javascript-kernel-service-worker.js",
+]
 exclude = [".github", "binder"]
+
+[tool.hatch.build.targets.wheel]
+artifacts = ["jupyterlite_javascript_kernel/javascript-kernel-service-worker.js"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyterlite_javascript_kernel/labextension" = "share/jupyter/labextensions/@jupyterlite/javascript-kernel-extension"

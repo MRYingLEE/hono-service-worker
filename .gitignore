@@ -8,6 +8,7 @@ node_modules/
 .ipynb_checkpoints
 *.tsbuildinfo
 jupyterlite_javascript_kernel/labextension
+jupyterlite_javascript_kernel/javascript-kernel-service-worker.js
 # Version file is handled by hatchling
 jupyterlite_javascript_kernel/_version.py
 

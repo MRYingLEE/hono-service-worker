@@ -3,6 +3,7 @@
 
 import type { KernelMessage } from '@jupyterlab/services';
 import type { IWorkerKernel } from '@jupyterlite/services';
+import type { RuntimeLogLevel } from './runtime_logging';
 
 /**
  * Supported runtime backends for the JavaScript kernel.
@@ -110,7 +111,7 @@ export interface IRuntimeResponse {
  */
 export interface IRemoteRuntimeApi {
   initialize(
-    options: IWorkerKernel.IOptions,
+    options: IRuntimeInitializeOptions,
     onOutput: RuntimeOutputCallback
   ): Promise<void>;
   identify(identityUrl: string): Promise<string | null>;
@@ -162,6 +163,14 @@ export interface IRemoteRuntimeApi {
   resolveClaimedPrefixes(requestId: string, prefixes: string[]): Promise<void>;
   ping(): Promise<void>;
   dispose(): Promise<void>;
+}
+
+/**
+ * Options used to initialize an iframe or worker Runtime.
+ */
+export interface IRuntimeInitializeOptions extends IWorkerKernel.IOptions {
+  /** Minimum level for cell-defined route request logs. Defaults to `warn`. */
+  routeLogLevel?: RuntimeLogLevel;
 }
 
 export function headersToRecord(headers: Headers): Record<string, string> {

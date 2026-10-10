@@ -82,3 +82,9 @@ example, if the claim is `/api/sales-dashboard/`, test
 Unexpected `404` responses can indicate that the active kernel has no matching
 route; a `503` indicates that a claim exists but its owning Runtime is not
 available.
+
+Route request outcomes appear in the Runtime console. The default
+`routeLogLevel` is `warn`: 4xx responses are warnings, while 5xx responses and
+handler exceptions are errors. Set the JavaScript kernel option to `info` or
+`debug` to include successful request logs, `error` to show only server errors,
+or `silent` to disable route logging.

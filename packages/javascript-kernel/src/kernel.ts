@@ -13,6 +13,7 @@ import {
   WorkerRuntimeBackend
 } from './runtime_backends';
 import type { RuntimeMode, RuntimeOutputMessage } from './runtime_protocol';
+import type { RuntimeLogLevel } from './runtime_logging';
 import {
   claimedPrefixes,
   claimPrefix,
@@ -32,6 +33,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   constructor(options: JavaScriptKernel.IOptions) {
     super(options);
     this._runtimeMode = options.runtime ?? 'iframe';
+    this._routeLogLevel = options.routeLogLevel;
     this._executorFactory = options.executorFactory;
     this._startupExtensions = [...(options.startupExtensions ?? [])];
     this._serviceWorker =
@@ -322,6 +324,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   protected createBackend(runtimeMode: RuntimeMode): IRuntimeBackend {
     const options = {
       kernelId: this.id,
+      routeLogLevel: this._routeLogLevel,
       onOutput: (message: RuntimeOutputMessage) => {
         this.processRuntimeMessage(message);
       }
@@ -596,6 +599,7 @@ export class JavaScriptKernel extends BaseKernel implements IKernel {
   private _runtimeReadyContext: JavaScriptKernel.IRuntimeReadyContext | null =
     null;
   private _runtimeMode: RuntimeMode;
+  private _routeLogLevel?: RuntimeLogLevel;
   private _serviceWorker?: IServiceWorkerContainer;
 }
 
@@ -667,6 +671,7 @@ export namespace JavaScriptKernel {
    */
   export interface IOptions extends IKernel.IOptions {
     runtime?: RuntimeMode;
+    routeLogLevel?: RuntimeLogLevel;
     executorFactory?: IExecutorFactory;
     startupExtensions?: readonly IStartupExtension[];
     serviceWorker?: IServiceWorkerContainer;

@@ -2,6 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import { Hono } from 'hono';
+import type { ErrorHandler } from 'hono';
 import { headersToRecord } from './runtime_protocol';
 import type { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
 import type {
@@ -95,7 +96,14 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
         if (typeof register !== 'function') {
           throw new Error(`Unsupported Hono registration method: ${method}`);
         }
-        Reflect.apply(register, next, args);
+        const registrationArgs =
+          method === 'onError' && typeof args[0] === 'function'
+            ? [
+                this._wrapErrorHandler(args[0] as ErrorHandler),
+                ...args.slice(1)
+              ]
+            : args;
+        Reflect.apply(register, next, registrationArgs);
       }
     }
     this._app = next;
@@ -121,18 +129,33 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
   }
 
   async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
-    const response = await this._app.request(request.url, {
+    const startedAt = Date.now();
+    const path = new URL(request.url).pathname;
+    const runtimeRequest = new Request(request.url, {
       method: request.method,
       headers: request.headers,
       body: request.body
     });
+    this._options.log('debug', 'HTTP request received', {
+      method: request.method,
+      path
+    });
+    const response = await this._app.request(runtimeRequest);
+    const handlerFailed = this._failedRequests.has(runtimeRequest);
+    this._failedRequests.delete(runtimeRequest);
     // Middleware can leave an unmatched request without a Response.
     if (!response) {
+      if (!handlerFailed) {
+        this._logRequest(request, path, 404, startedAt);
+      }
       return {
         status: 404,
         headers: { 'content-type': 'text/plain; charset=UTF-8' },
         body: new TextEncoder().encode('404 Not Found')
       };
+    }
+    if (!handlerFailed) {
+      this._logRequest(request, path, response.status, startedAt);
     }
     return {
       status: response.status,
@@ -152,14 +175,48 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
     const app = new Hono();
     // Cell-level onError registrations are replayed later and take precedence.
     app.onError(async (error, c) => {
-      await this._options.onError(error);
+      await this._reportError(error, c);
       return c.text('Internal Server Error', 500);
     });
     return app;
   }
 
+  private _wrapErrorHandler(handler: ErrorHandler): ErrorHandler {
+    return async (error, c) => {
+      await this._reportError(error, c);
+      return handler(error, c);
+    };
+  }
+
+  private async _reportError(
+    error: Error,
+    context: Parameters<ErrorHandler>[1]
+  ): Promise<void> {
+    this._failedRequests.add(context.req.raw);
+    await this._options.onError(error, {
+      method: context.req.method,
+      url: context.req.url
+    });
+  }
+
+  private _logRequest(
+    request: IRuntimeRequest,
+    path: string,
+    status: number,
+    startedAt: number
+  ): void {
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
+    this._options.log(level, 'HTTP request completed', {
+      method: request.method,
+      path,
+      status,
+      durationMs: Date.now() - startedAt
+    });
+  }
+
   private _app: Hono;
   private _cellApp: Hono;
+  private _failedRequests = new WeakSet<Request>();
   // Map insertion order keeps rerun cells in their original position.
   private _appCallsByCell = new Map<string, IAppCall[]>();
   private _currentCellKey: string | null = null;

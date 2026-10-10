@@ -2,6 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import type { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
+import type { RuntimeLogMethod } from './runtime_logging';
 
 /**
  * Framework-specific route registration and request handling in a Runtime.
@@ -24,7 +25,16 @@ export interface IRuntimeRoutes {
 
 export interface IRuntimeRoutesOptions {
   /** Report handler exceptions unless a cell supplies its own error handler. */
-  onError(error: unknown): void | Promise<void>;
+  onError(
+    error: unknown,
+    request: Pick<IRuntimeRequest, 'method' | 'url'>
+  ): void | Promise<void>;
+  /** Report completed route requests at their corresponding severity. */
+  log(
+    level: RuntimeLogMethod,
+    message: string,
+    details: Record<string, unknown>
+  ): void;
 }
 
 /**

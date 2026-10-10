@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import { JavaScriptExecutor } from './executor';
 import { createRemoteRuntimeApi } from './runtime_remote';
+import type { RuntimeLogLevel } from './runtime_logging';
 import type { RuntimeOutputMessage } from './runtime_protocol';
 
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -9,13 +10,19 @@ const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 describe('dispatchRequest', () => {
   // Cell code resolves free identifiers against the realm global, so the
   // runtime global scope must be globalThis, as it is for the Web Worker.
-  const setup = async (outputs: RuntimeOutputMessage[] = []) => {
+  const setup = async (
+    outputs: RuntimeOutputMessage[] = [],
+    routeLogLevel?: RuntimeLogLevel
+  ) => {
     const globalScope = globalThis as unknown as Record<string, any>;
     const executor = new JavaScriptExecutor(globalScope);
     const api = createRemoteRuntimeApi(globalScope, executor);
-    await api.initialize({ baseUrl: 'http://localhost/' }, message => {
-      outputs.push(message);
-    });
+    await api.initialize(
+      { baseUrl: 'http://localhost/', routeLogLevel },
+      message => {
+        outputs.push(message);
+      }
+    );
     return api;
   };
 
@@ -243,10 +250,10 @@ describe('dispatchRequest', () => {
 
   it('returns 500 without publishing a notebook error when a handler throws', async () => {
     const outputs: RuntimeOutputMessage[] = [];
-    const api = await setup(outputs);
     const errorLogger = jest
       .spyOn(globalThis.console, 'error')
       .mockImplementation(() => undefined);
+    const api = await setup(outputs);
 
     try {
       const reply = await api.execute(
@@ -265,11 +272,82 @@ describe('dispatchRequest', () => {
         outputs.filter(message => message.type === 'execute_error')
       ).toEqual([]);
       expect(errorLogger).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'boom' })
+        '[JavaScript Kernel routes] Request handler failed',
+        expect.objectContaining({
+          path: '/boom',
+          error: expect.objectContaining({ message: 'boom' })
+        })
       );
+      expect(errorLogger).toHaveBeenCalledTimes(1);
     } finally {
-      errorLogger.mockRestore();
       await api.dispose();
+      errorLogger.mockRestore();
+    }
+  });
+
+  it('logs failed requests at warning by default without logging successful requests', async () => {
+    const infoLogger = jest
+      .spyOn(globalThis.console, 'info')
+      .mockImplementation(() => undefined);
+    const warningLogger = jest
+      .spyOn(globalThis.console, 'warn')
+      .mockImplementation(() => undefined);
+    const api = await setup();
+    try {
+      await api.execute("app.get('/ok', c => c.text('ok'));", 1);
+      await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/ok?token=private'
+      });
+      await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/missing'
+      });
+
+      expect(infoLogger).not.toHaveBeenCalled();
+      expect(warningLogger).toHaveBeenCalledWith(
+        '[JavaScript Kernel routes] HTTP request completed',
+        expect.objectContaining({
+          method: 'GET',
+          path: '/missing',
+          status: 404
+        })
+      );
+      expect(warningLogger.mock.calls[0][1]).not.toHaveProperty('token');
+    } finally {
+      await api.dispose();
+      infoLogger.mockRestore();
+      warningLogger.mockRestore();
+    }
+  });
+
+  it('honors the configured route log level', async () => {
+    const warningLogger = jest
+      .spyOn(globalThis.console, 'warn')
+      .mockImplementation(() => undefined);
+    const errorLogger = jest
+      .spyOn(globalThis.console, 'error')
+      .mockImplementation(() => undefined);
+    const api = await setup([], 'error');
+    try {
+      await api.execute(
+        "app.get('/boom', () => { throw new Error('boom'); });",
+        1
+      );
+      await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/missing'
+      });
+      await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/boom'
+      });
+      expect(warningLogger).not.toHaveBeenCalled();
+      expect(errorLogger).toHaveBeenCalled();
+    } finally {
+      await api.dispose();
+      warningLogger.mockRestore();
+      errorLogger.mockRestore();
     }
   });
 
@@ -290,6 +368,7 @@ describe('dispatchRequest', () => {
         method: 'GET',
         url: 'http://runtime.local/boom'
       });
+
       expect(error.status).toBe(500);
       expect(decode(error.body)).toBe('handled: boom');
       expect(
@@ -303,6 +382,39 @@ describe('dispatchRequest', () => {
       expect(decode(missing.body)).toBe('custom missing');
     } finally {
       await api.dispose();
+    }
+  });
+
+  it('logs handler exceptions once when a cell provides its own error handler', async () => {
+    const errorLogger = jest
+      .spyOn(globalThis.console, 'error')
+      .mockImplementation(() => undefined);
+    const api = await setup();
+    try {
+      await api.execute(
+        [
+          'app.onError((error, c) => c.text(`handled: ${error.message}`, 500));',
+          "app.get('/boom', () => { throw new Error('boom'); });"
+        ].join('\n'),
+        1
+      );
+
+      const response = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/boom'
+      });
+      expect(response.status).toBe(500);
+      expect(errorLogger).toHaveBeenCalledWith(
+        '[JavaScript Kernel routes] Request handler failed',
+        expect.objectContaining({
+          path: '/boom',
+          error: expect.objectContaining({ message: 'boom' })
+        })
+      );
+      expect(errorLogger).toHaveBeenCalledTimes(1);
+    } finally {
+      await api.dispose();
+      errorLogger.mockRestore();
     }
   });
 });

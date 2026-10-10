@@ -125,6 +125,12 @@ Responses:
 - `503` with a plain-text body (`Runtime for <prefix> is not running`) when
   the owning kernel has no running Runtime.
 
+Route requests are logged to the Runtime console by status: successful
+requests at `info`, client errors at `warn`, and server errors and handler
+exceptions at `error`. The default `routeLogLevel` is `warn`, so successful
+requests do not clutter the console. Configure it in the JavaScript kernel
+options with `debug`, `info`, `warn`, `error`, or `silent`.
+
 A `claimedPrefixes()` request that is still pending when the kernel restarts
 may never resolve.
 

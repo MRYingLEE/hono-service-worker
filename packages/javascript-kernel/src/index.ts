@@ -5,6 +5,7 @@ export * from './kernel';
 export * from './executor';
 export * from './display';
 export * from './runtime_protocol';
+export * from './runtime_logging';
 export * from './runtime_routes';
 export * from './hono_routes';
 export * from './runtime_remote';

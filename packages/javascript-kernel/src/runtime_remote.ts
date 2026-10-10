@@ -11,6 +11,11 @@ import type {
   IRuntimeResponse,
   RuntimeOutputMessage
 } from './runtime_protocol';
+import {
+  captureRuntimeLogger,
+  logRouteMessage,
+  normalizeRuntimeLogLevel
+} from './runtime_logging';
 
 /**
  * Create a Comlink runtime API bound to the provided global scope.
@@ -28,6 +33,7 @@ export function createRemoteRuntimeApi(
     (prefixes: string[]) => void
   >();
   let nextClaimedPrefixesRequest = 0;
+  let routeLogger = captureRuntimeLogger(globalScope);
 
   const ensureEvaluator = (): JavaScriptRuntimeEvaluator => {
     if (!evaluator) {
@@ -47,11 +53,25 @@ export function createRemoteRuntimeApi(
 
   const createRoutes = () =>
     routesFactory({
-      onError(error) {
-        globalScope.console.error(error);
+      onError(error, request) {
+        logRouteMessage(
+          routeLogger,
+          routeLogLevel,
+          'error',
+          'Request handler failed',
+          {
+            method: request.method,
+            path: new URL(request.url).pathname,
+            error
+          }
+        );
+      },
+      log(level, message, details) {
+        logRouteMessage(routeLogger, routeLogLevel, level, message, details);
       }
     });
   let routes: IRuntimeRoutes | null = null;
+  let routeLogLevel = normalizeRuntimeLogLevel(undefined);
   const ensureRoutes = (): IRuntimeRoutes => {
     if (!routes) {
       throw new Error('Runtime is not initialized');
@@ -67,7 +87,9 @@ export function createRemoteRuntimeApi(
       if (typeof options.baseUrl !== 'string') {
         throw new Error('Runtime baseUrl is required');
       }
+      routeLogLevel = normalizeRuntimeLogLevel(options.routeLogLevel);
       evaluator?.dispose();
+      routeLogger = captureRuntimeLogger(globalScope);
       routes?.dispose();
       routes = createRoutes();
       globalScope.app = routes.app;

@@ -23,6 +23,7 @@ import type {
   RuntimeOutputHandler,
   RuntimeOutputMessage
 } from './runtime_protocol';
+import type { RuntimeLogLevel } from './runtime_logging';
 
 /**
  * File name of the worker runtime bundle the lab build emits. It lives under
@@ -44,6 +45,7 @@ export interface IRuntimeBackendOptions {
   onOutput: RuntimeOutputHandler;
   baseUrl?: string;
   kernelId?: string;
+  routeLogLevel?: RuntimeLogLevel;
 }
 
 /**
@@ -429,7 +431,8 @@ export class IFrameRuntimeBackend extends AbstractRuntimeBackend {
       await withTimeout(
         remote.initialize(
           {
-            baseUrl: resolveBaseUrl(this._options.baseUrl)
+            baseUrl: resolveBaseUrl(this._options.baseUrl),
+            routeLogLevel: this._options.routeLogLevel
           },
           activeOutputProxy
         ),
@@ -603,7 +606,8 @@ export class WorkerRuntimeBackend extends AbstractRuntimeBackend {
       await withTimeout(
         remote.initialize(
           {
-            baseUrl: resolveBaseUrl(this._options.baseUrl)
+            baseUrl: resolveBaseUrl(this._options.baseUrl),
+            routeLogLevel: this._options.routeLogLevel
           },
           outputProxy
         ),

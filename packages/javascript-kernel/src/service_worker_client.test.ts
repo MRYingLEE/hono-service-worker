@@ -218,6 +218,27 @@ describe('registerRuntimeClient', () => {
       { type: 'runtime', kernelId: 'k1', clientId: 'worker-1' }
     ]);
   });
+
+  it('re-registers the Runtime when a prefix is reclaimed after a worker restart', async () => {
+    const container = new FakeContainer();
+    await connectServiceWorker(container, '/sw.js', new Map());
+    await registerRuntimeClient(container, 'restarted-k1', 'worker-restarted');
+    await claimPrefix(container, 'restarted-k1', '/demo/');
+
+    // The registration URL remains active, but a restarted worker loses its
+    // in-memory runtime table.
+    container.worker = new FakeWorker();
+    await claimPrefix(container, 'restarted-k1', '/demo/');
+
+    expect(container.worker.posted).toEqual([
+      { type: 'claim', kernelId: 'restarted-k1', prefix: '/demo/' },
+      {
+        type: 'runtime',
+        kernelId: 'restarted-k1',
+        clientId: 'worker-restarted'
+      }
+    ]);
+  });
 });
 
 describe('when the Service worker registration is lost', () => {

@@ -96,6 +96,10 @@ export async function claimPrefix(
   }
   prefixes.add(prefix);
   await postToActive(container, { type: 'claim', kernelId, prefix });
+  const clientId = runtimeClients.get(kernelId);
+  if (clientId) {
+    await postToActive(container, { type: 'runtime', kernelId, clientId });
+  }
 }
 
 /**

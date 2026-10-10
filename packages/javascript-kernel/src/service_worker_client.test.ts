@@ -123,6 +123,44 @@ describe('connectServiceWorker', () => {
     expect(dispatched).toEqual([{ method: 'GET', url: 'http://x/k1/a' }]);
     expect(port.posted).toEqual([response]);
   });
+
+  it('replies with a 500 when the backend fails, so the request does not hang', async () => {
+    const container = new FakeContainer();
+    const backends = new Map<string, IDispatchTarget>([
+      [
+        'k1',
+        {
+          dispatchRequest: async () => {
+            throw new TypeError('Cannot read properties of undefined');
+          }
+        }
+      ]
+    ]);
+    await connectServiceWorker(container, '/sw.js', backends);
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const port = new FakePort();
+    const message: IDispatchMessage = {
+      type: 'dispatch',
+      kernelId: 'k1',
+      prefix: 'k1',
+      request: { method: 'GET', url: 'http://x/k1/missing' }
+    };
+    container.listener?.({
+      data: message,
+      ports: [port as unknown as MessagePort]
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(port.posted).toEqual([
+      {
+        status: 500,
+        headers: { 'content-type': 'text/plain' },
+        body: new TextEncoder().encode('Internal Server Error')
+      }
+    ]);
+    jest.restoreAllMocks();
+  });
 });
 
 describe('claimPrefix / releasePrefix', () => {

@@ -337,6 +337,15 @@ export function createRemoteRuntimeApi(
         headers: request.headers,
         body: request.body
       });
+      // Hono can return no Response for an unmatched path under middleware.
+      // Answer with its default 404 so the requester is never left waiting.
+      if (!response) {
+        return {
+          status: 404,
+          headers: { 'content-type': 'text/plain; charset=UTF-8' },
+          body: new TextEncoder().encode('404 Not Found')
+        };
+      }
       return {
         status: response.status,
         headers: headersToRecord(response.headers),

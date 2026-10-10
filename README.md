@@ -125,6 +125,8 @@ Responses:
 A `claimedPrefixes()` request that is still pending when the kernel restarts
 may never resolve.
 
+See the [example notebook](examples/cell-defined-routes.ipynb) for a walkthrough of these routes.
+
 ### Worker mode limitations
 
 Web Workers do not expose DOM APIs. In `JavaScript (Web Worker)`, APIs such as `document`, direct element access, and other main-thread-only browser APIs are unavailable.

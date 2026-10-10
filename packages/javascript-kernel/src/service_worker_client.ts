@@ -57,9 +57,16 @@ export async function connectServiceWorker(
     if (!port) {
       return;
     }
-    void handleDispatchMessage(backends, data).then(response =>
-      port.postMessage(response)
-    );
+    void handleDispatchMessage(backends, data)
+      .catch(error => {
+        console.error('Kernel request dispatch failed', error);
+        return {
+          status: 500,
+          headers: { 'content-type': 'text/plain' },
+          body: new TextEncoder().encode('Internal Server Error')
+        };
+      })
+      .then(response => port.postMessage(response));
   });
 
   await container.register(url);

@@ -92,6 +92,41 @@ describe('dispatchRequest', () => {
     expect(response.status).toBe(404);
   });
 
+  it('returns 404 for an undefined path after cells register middleware and routes in order', async () => {
+    const api = await setup();
+
+    const cells = [
+      "claimPrefix('/demo/');",
+      [
+        "app.use('/demo/*', async (c, next) => {",
+        '  await next();',
+        "  c.header('x-demo', 'cell-routes');",
+        '});'
+      ].join('\n'),
+      "app.get('/demo/hello', c => c.json({ message: 'hello' }));",
+      "app.get('/demo/greet/:name', c => c.text(`Hello, ${c.req.param('name')}!`));",
+      "app.post('/demo/echo', async c => c.json({ received: await c.req.json() }, 201));",
+      "app.get('/demo/boom', () => {\n  throw new Error('boom');\n});"
+    ];
+    for (const [index, code] of cells.entries()) {
+      const reply = await api.execute(code, index + 1);
+      expect(reply.status).toBe('ok');
+    }
+
+    const hello = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/demo/hello'
+    });
+    expect(hello.status).toBe(200);
+
+    const missing = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/demo/missing'
+    });
+    expect(missing.status).toBe(404);
+    expect(decode(missing.body)).toBe('404 Not Found');
+  });
+
   it('drops an earlier cell route under a prefix that a later cell claims', async () => {
     const api = await setup();
 

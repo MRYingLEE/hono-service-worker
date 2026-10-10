@@ -265,6 +265,39 @@ describe('dispatchRequest', () => {
       bundle: { ename: 'Error', evalue: 'boom' }
     });
   });
+
+  it('preserves cell-defined error and not-found handlers', async () => {
+    const outputs: RuntimeOutputMessage[] = [];
+    const api = await setup(outputs);
+    try {
+      const reply = await api.execute(
+        [
+          'app.onError((error, c) => c.text(`handled: ${error.message}`, 500));',
+          "app.notFound(c => c.text('custom missing', 404));",
+          "app.get('/boom', () => { throw new Error('boom'); });"
+        ].join('\n'),
+        1
+      );
+      expect(reply.status).toBe('ok');
+      const error = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/boom'
+      });
+      expect(error.status).toBe(500);
+      expect(decode(error.body)).toBe('handled: boom');
+      expect(
+        outputs.filter(message => message.type === 'execute_error')
+      ).toEqual([]);
+      const missing = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/missing'
+      });
+      expect(missing.status).toBe(404);
+      expect(decode(missing.body)).toBe('custom missing');
+    } finally {
+      await api.dispose();
+    }
+  });
 });
 
 describe('route table lifecycle', () => {
@@ -343,6 +376,33 @@ describe('route table lifecycle', () => {
 
     expect(decode((await get(api, '/a')).body)).toBe('a2');
     expect(decode((await get(api, '/b')).body)).toBe('b');
+  });
+
+  it('preserves registration order when an earlier cell is rerun', async () => {
+    const api = await setup();
+    try {
+      await api.execute(
+        "app.get('/same', c => c.text('first'));",
+        1,
+        undefined,
+        'first'
+      );
+      await api.execute(
+        "app.get('/same', c => c.text('second'));",
+        2,
+        undefined,
+        'second'
+      );
+      await api.execute(
+        "app.get('/same', c => c.text('updated'));",
+        3,
+        undefined,
+        'first'
+      );
+      expect(decode((await get(api, '/same')).body)).toBe('updated');
+    } finally {
+      await api.dispose();
+    }
   });
 
   it('empties the route table when the runtime is restarted', async () => {

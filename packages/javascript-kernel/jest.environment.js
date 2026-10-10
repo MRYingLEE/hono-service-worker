@@ -2,11 +2,15 @@
 // Jest 26's node environment does not expose the Fetch API globals that Hono
 // needs for `app.request`. Copy them from the outer Node realm.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const NodeEnvironment = require(
+const NodeEnvironmentModule = require(
   require.resolve('jest-environment-node', {
     paths: [require.resolve('jest-runner')]
   })
 );
+const NodeEnvironment =
+  NodeEnvironmentModule.TestEnvironment ??
+  NodeEnvironmentModule.default ??
+  NodeEnvironmentModule;
 
 class FetchApiNodeEnvironment extends NodeEnvironment {
   constructor(config, context) {

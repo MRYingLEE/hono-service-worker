@@ -190,7 +190,7 @@ abstract class AbstractRuntimeBackend implements IRuntimeBackend {
   }
 
   /**
-   * Dispatch an HTTP-like request to the runtime's Hono app.
+   * Dispatch an HTTP-like request to the runtime's route adapter.
    */
   async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
     await this.ready;

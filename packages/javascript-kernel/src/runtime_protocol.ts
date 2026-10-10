@@ -87,7 +87,7 @@ export type RuntimeOutputCallback = (
 ) => void | Promise<void>;
 
 /**
- * Plain-data HTTP request dispatched into a Runtime's Hono app.
+ * Framework-neutral, plain-data HTTP request dispatched into a Runtime.
  */
 export interface IRuntimeRequest {
   method: string;
@@ -97,7 +97,7 @@ export interface IRuntimeRequest {
 }
 
 /**
- * Plain-data HTTP response returned from a Runtime's Hono app.
+ * Framework-neutral, plain-data HTTP response returned from a Runtime.
  */
 export interface IRuntimeResponse {
   status: number;

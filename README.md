@@ -127,6 +127,52 @@ may never resolve.
 
 See the [example notebook](examples/cell-defined-routes.ipynb) for a walkthrough of these routes.
 
+#### Framework adapters
+
+Prefix claims, Service Worker routing, and the plain-data HTTP request/response
+protocol are independent of the web framework. Hono remains the default in
+both iframe and worker runtimes; cell syntax and behavior are unchanged.
+
+Framework-specific behavior lives behind
+[`IRuntimeRoutes`](packages/javascript-kernel/src/runtime_routes.ts).
+The [Hono adapter](packages/javascript-kernel/src/hono_routes.ts) owns route
+recording, per-cell replacement, middleware replay, and request handling.
+The Runtime owns claim messages and notebook error reporting.
+
+To use another framework in a custom Runtime bootstrap, supply a
+`RuntimeRoutesFactory` as the third argument to `createRemoteRuntimeApi`:
+
+```typescript
+const runtime = createRemoteRuntimeApi(
+  runtimeGlobal,
+  undefined,
+  options => new MyFrameworkRoutes(options)
+);
+```
+
+The factory runs locally, once per Runtime initialization. Its adapter exposes
+the framework object as `app`, starts a replacement registration set in
+`beginCell(cellKey)`, and publishes it in `endCell()`. `endCell()` runs even
+when cell execution fails, so registrations made before the failure are kept.
+Other cells' registrations and their order must be preserved. Executions
+without a cell ID receive distinct keys based on their execution count.
+`claimPrefix(prefix)` lets the executing cell replace other cells' routes
+under that prefix; it does not send claim messages itself.
+
+`dispatchRequest()` accepts `IRuntimeRequest` and returns `IRuntimeResponse`
+(method, full URL, headers, and optional request bytes; status, headers, and
+response bytes). The adapter invokes handlers in-process rather than opening a
+listening socket. It supplies unmatched-route and handler-error responses, and
+calls `options.onError(error)` for handler exceptions unless a cell overrides
+error handling. Exceptions it does not handle propagate to the existing
+dispatch error handling. Disposal releases its route state and resources;
+reinitialization disposes the old adapter and creates a fresh one.
+
+This is an extension seam, not notebook-facing framework selection or built-in
+Python support. A future Python kernel would still need its own execution
+bridge and a compatible in-process framework adapter, but can use the same
+framework-neutral request/response protocol.
+
 ### Worker mode limitations
 
 Web Workers do not expose DOM APIs. In `JavaScript (Web Worker)`, APIs such as `document`, direct element access, and other main-thread-only browser APIs are unavailable.

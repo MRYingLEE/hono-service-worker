@@ -1,11 +1,11 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { Hono } from 'hono';
 import { JavaScriptRuntimeEvaluator } from './runtime_evaluator';
 import type { JavaScriptExecutor } from './executor';
 import { normalizeError } from './errors';
-import { headersToRecord } from './runtime_protocol';
+import { createHonoRuntimeRoutes } from './hono_routes';
+import type { IRuntimeRoutes, RuntimeRoutesFactory } from './runtime_routes';
 import type {
   IRemoteRuntimeApi,
   IRuntimeRequest,
@@ -13,73 +13,16 @@ import type {
   RuntimeOutputMessage
 } from './runtime_protocol';
 
-interface IAppCall {
-  method: string;
-  args: unknown[];
-}
-
-/**
- * Hono methods that register routes or app-level handlers. Calls to these are
- * recorded per cell so the route table can be rebuilt when a cell re-runs.
- */
-const REGISTRATION_METHODS = new Set([
-  'get',
-  'post',
-  'put',
-  'delete',
-  'patch',
-  'options',
-  'head',
-  'all',
-  'on',
-  'use',
-  'route',
-  'mount',
-  'notFound',
-  'onError'
-]);
-
-/**
- * Route registrations whose path is the first argument, or the second for
- * `on(method, path, ...)`.
- */
-const PATH_ARG_INDEX: Record<string, number> = {
-  get: 0,
-  post: 0,
-  put: 0,
-  delete: 0,
-  patch: 0,
-  options: 0,
-  head: 0,
-  all: 0,
-  use: 0,
-  route: 0,
-  mount: 0,
-  on: 1
-};
-
-const routePathOf = (call: IAppCall): string | undefined => {
-  const index = PATH_ARG_INDEX[call.method];
-  if (index === undefined) {
-    return undefined;
-  }
-  const path = call.args[index];
-  return typeof path === 'string' ? path : undefined;
-};
-
 /**
  * Create a Comlink runtime API bound to the provided global scope.
+ * The route factory runs locally; both built-in backends default to Hono.
  */
 export function createRemoteRuntimeApi(
   globalScope: Record<string, any>,
-  executor?: JavaScriptExecutor
+  executor?: JavaScriptExecutor,
+  routesFactory: RuntimeRoutesFactory = createHonoRuntimeRoutes
 ): IRemoteRuntimeApi {
   let evaluator: JavaScriptRuntimeEvaluator | null = null;
-  let app: Hono = new Hono();
-  // Keyed by cell id; insertion order keeps a re-run cell in its original position.
-  const appCallsByCell = new Map<string, IAppCall[]>();
-  // Key of the cell currently executing, so its claims can keep its own routes.
-  let currentCellKey: string | null = null;
   // Cell `claimedPrefixes()` calls waiting on the Kernel's answer, keyed by request id.
   const pendingClaimedPrefixes = new Map<
     string,
@@ -103,96 +46,34 @@ export function createRemoteRuntimeApi(
     });
   };
 
-  /**
-   * Wrap the live app so cell registrations are captured instead of applied
-   * directly. Other properties are forwarded to the live app.
-   */
-  const createRecordingApp = (calls: IAppCall[]): Hono => {
-    const target = app;
-    const recorder: Hono = new Proxy(target, {
-      get(obj, prop) {
-        if (typeof prop === 'string' && REGISTRATION_METHODS.has(prop)) {
-          return (...args: unknown[]) => {
-            calls.push({ method: prop, args });
-            return recorder;
-          };
-        }
-        const value = Reflect.get(obj, prop, obj);
-        return typeof value === 'function' ? value.bind(obj) : value;
-      }
-    });
-    return recorder;
-  };
-
   let outputCallback: Parameters<IRemoteRuntimeApi['initialize']>[1] | null =
     null;
 
-  /**
-   * Create a Hono app with the runtime's built-in error handler. Cell-level
-   * `onError` registrations are replayed after this and take precedence.
-   */
-  const createAppWithErrorHandler = (): Hono => {
-    const next = new Hono();
-    // A handler exception becomes a 500 for the Client and is reported to
-    // the notebook through the same error output as a failing cell.
-    next.onError((error, c) => {
-      const normalized = normalizeError(error);
-      if (outputCallback) {
-        emitOutput(outputCallback, {
-          type: 'execute_error',
-          bundle: {
-            status: 'error',
-            ename: normalized.name || 'Error',
-            evalue: normalized.message || '',
-            traceback: [
-              normalized.stack ?? `${normalized.name}: ${normalized.message}`
-            ]
-          }
-        });
+  const createRoutes = () =>
+    routesFactory({
+      onError(error) {
+        const normalized = normalizeError(error);
+        if (outputCallback) {
+          emitOutput(outputCallback, {
+            type: 'execute_error',
+            bundle: {
+              status: 'error',
+              ename: normalized.name || 'Error',
+              evalue: normalized.message || '',
+              traceback: [
+                normalized.stack ?? `${normalized.name}: ${normalized.message}`
+              ]
+            }
+          });
+        }
       }
-      return c.text('Internal Server Error', 500);
     });
-    return next;
-  };
-
-  /**
-   * Build a fresh app by replaying every cell's recorded registrations in order.
-   */
-  const rebuildApp = (): void => {
-    const next = createAppWithErrorHandler();
-    const target = next as unknown as Record<
-      string,
-      (...args: unknown[]) => unknown
-    >;
-    for (const calls of appCallsByCell.values()) {
-      for (const { method, args } of calls) {
-        target[method].apply(next, args);
-      }
+  let routes: IRuntimeRoutes | null = null;
+  const ensureRoutes = (): IRuntimeRoutes => {
+    if (!routes) {
+      throw new Error('Runtime is not initialized');
     }
-    app = next;
-    globalScope.app = next;
-  };
-
-  /**
-   * Forget routes that other cells registered under a prefix the executing
-   * cell is claiming, so the claimant's handlers answer those paths.
-   */
-  const dropRoutesUnder = (prefix: string): void => {
-    if (currentCellKey === null) {
-      return;
-    }
-    for (const [key, calls] of appCallsByCell) {
-      if (key === currentCellKey) {
-        continue;
-      }
-      appCallsByCell.set(
-        key,
-        calls.filter(call => {
-          const path = routePathOf(call);
-          return path === undefined || !path.startsWith(prefix);
-        })
-      );
-    }
+    return routes;
   };
 
   return {
@@ -205,11 +86,11 @@ export function createRemoteRuntimeApi(
       }
       evaluator?.dispose();
       outputCallback = onOutput;
-      app = createAppWithErrorHandler();
-      appCallsByCell.clear();
-      globalScope.app = app;
+      routes?.dispose();
+      routes = createRoutes();
+      globalScope.app = routes.app;
       globalScope.claimPrefix = (prefix: string): void => {
-        dropRoutesUnder(prefix);
+        ensureRoutes().claimPrefix(prefix);
         emitOutput(onOutput, { type: 'claim_prefix', prefix });
       };
       globalScope.releasePrefix = (prefix: string): void => {
@@ -247,17 +128,16 @@ export function createRemoteRuntimeApi(
       cellId?: string
     ) {
       const runtime = ensureEvaluator();
+      const cellRoutes = ensureRoutes();
       // Without a cell id, each execution gets its own record so its routes accumulate.
       const key = cellId ?? `execution:${executionCount}`;
-      const calls: IAppCall[] = [];
-      appCallsByCell.set(key, calls);
-      globalScope.app = createRecordingApp(calls);
-      currentCellKey = key;
+      cellRoutes.beginCell(key);
+      globalScope.app = cellRoutes.app;
       try {
         return await runtime.execute(code, executionCount, parentMessageId);
       } finally {
-        currentCellKey = null;
-        rebuildApp();
+        cellRoutes.endCell();
+        globalScope.app = cellRoutes.app;
       }
     },
 
@@ -332,25 +212,7 @@ export function createRemoteRuntimeApi(
     },
 
     async dispatchRequest(request: IRuntimeRequest): Promise<IRuntimeResponse> {
-      const response = await app.request(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: request.body
-      });
-      // Hono can return no Response for an unmatched path under middleware.
-      // Answer with its default 404 so the requester is never left waiting.
-      if (!response) {
-        return {
-          status: 404,
-          headers: { 'content-type': 'text/plain; charset=UTF-8' },
-          body: new TextEncoder().encode('404 Not Found')
-        };
-      }
-      return {
-        status: response.status,
-        headers: headersToRecord(response.headers),
-        body: new Uint8Array(await response.arrayBuffer())
-      };
+      return ensureRoutes().dispatchRequest(request);
     },
 
     async resolveClaimedPrefixes(
@@ -372,6 +234,8 @@ export function createRemoteRuntimeApi(
     async dispose(): Promise<void> {
       evaluator?.dispose();
       evaluator = null;
+      routes?.dispose();
+      routes = null;
       pendingClaimedPrefixes.clear();
     }
   };

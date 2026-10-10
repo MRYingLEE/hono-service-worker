@@ -151,8 +151,8 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
   private _createApp(): Hono {
     const app = new Hono();
     // Cell-level onError registrations are replayed later and take precedence.
-    app.onError((error, c) => {
-      this._options.onError(error);
+    app.onError(async (error, c) => {
+      await this._options.onError(error);
       return c.text('Internal Server Error', 500);
     });
     return app;

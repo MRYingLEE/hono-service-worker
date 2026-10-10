@@ -109,6 +109,9 @@ Claims follow these rules:
 - Prefixes match whole path segments, and the longest matching prefix wins.
 - Re-running a cell replaces the routes that cell registered.
 - Restarting the kernel releases its claims and clears its routes.
+- Claims belong to the kernel that made them, not to the currently selected
+  kernel. If that kernel remains running after a switch, its claims stay active
+  until released or that kernel is restarted or disposed.
 - Claiming a prefix again from the same client context replaces the earlier
   claim (last claim wins).
 - Each request is routed only to the Runtime of the kernel that claimed the
@@ -117,8 +120,8 @@ Claims follow these rules:
 Responses:
 
 - `404` for a path under a claimed prefix that no route matches.
-- `500` when a handler throws. The error is also reported to the notebook as
-  an `execute_error` output.
+- `500` when a handler throws. The exception is logged to the Runtime console
+  and is not emitted as an error output in the requesting cell.
 - `503` with a plain-text body (`Runtime for <prefix> is not running`) when
   the owning kernel has no running Runtime.
 
@@ -126,6 +129,8 @@ A `claimedPrefixes()` request that is still pending when the kernel restarts
 may never resolve.
 
 See the [example notebook](examples/cell-defined-routes.ipynb) for a walkthrough of these routes.
+For prefix naming, avoiding collisions, and lifecycle recommendations, see
+[Cell-defined routes: best practices](docs/cell-defined-routes-best-practices.md).
 
 #### Framework adapters
 
@@ -163,7 +168,7 @@ under that prefix; it does not send claim messages itself.
 (method, full URL, headers, and optional request bytes; status, headers, and
 response bytes). The adapter invokes handlers in-process rather than opening a
 listening socket. It supplies unmatched-route and handler-error responses, and
-calls `options.onError(error)` for handler exceptions unless a cell overrides
+awaits `options.onError(error)` for handler exceptions unless a cell overrides
 error handling. Exceptions it does not handle propagate to the existing
 dispatch error handling. Disposal releases its route state and resources;
 reinitialization disposes the old adapter and creates a fresh one.

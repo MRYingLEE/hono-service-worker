@@ -3,7 +3,6 @@
 
 import { JavaScriptRuntimeEvaluator } from './runtime_evaluator';
 import type { JavaScriptExecutor } from './executor';
-import { normalizeError } from './errors';
 import { createHonoRuntimeRoutes } from './hono_routes';
 import type { IRuntimeRoutes, RuntimeRoutesFactory } from './runtime_routes';
 import type {
@@ -46,26 +45,10 @@ export function createRemoteRuntimeApi(
     });
   };
 
-  let outputCallback: Parameters<IRemoteRuntimeApi['initialize']>[1] | null =
-    null;
-
   const createRoutes = () =>
     routesFactory({
       onError(error) {
-        const normalized = normalizeError(error);
-        if (outputCallback) {
-          emitOutput(outputCallback, {
-            type: 'execute_error',
-            bundle: {
-              status: 'error',
-              ename: normalized.name || 'Error',
-              evalue: normalized.message || '',
-              traceback: [
-                normalized.stack ?? `${normalized.name}: ${normalized.message}`
-              ]
-            }
-          });
-        }
+        globalScope.console.error(error);
       }
     });
   let routes: IRuntimeRoutes | null = null;
@@ -85,7 +68,6 @@ export function createRemoteRuntimeApi(
         throw new Error('Runtime baseUrl is required');
       }
       evaluator?.dispose();
-      outputCallback = onOutput;
       routes?.dispose();
       routes = createRoutes();
       globalScope.app = routes.app;

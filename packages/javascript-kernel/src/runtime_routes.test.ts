@@ -74,7 +74,7 @@ class TestRoutes implements IRuntimeRoutes {
         try {
           return await route.handler(request);
         } catch (error) {
-          this._options.onError(error);
+          await this._options.onError(error);
           return response(500, 'Internal Server Error');
         }
       }
@@ -202,22 +202,25 @@ describe('Runtime route adapter seam', () => {
     expect((await get('/partial')).status).toBe(200);
   });
 
-  it('reports adapter handler errors through notebook execute_error output', async () => {
-    await api.execute(
-      "app.define('GET', '/boom', async () => { throw new Error('adapter failed'); });",
-      1
-    );
-    expect((await get('/boom')).status).toBe(500);
-    expect(outputs.filter(message => message.type === 'execute_error')).toEqual(
-      [
-        expect.objectContaining({
-          bundle: expect.objectContaining({
-            ename: 'Error',
-            evalue: 'adapter failed'
-          })
-        })
-      ]
-    );
+  it('logs adapter handler errors without publishing a notebook error', async () => {
+    const errorLogger = jest
+      .spyOn(globalThis.console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      await api.execute(
+        "app.define('GET', '/boom', async () => { throw new Error('adapter failed'); });",
+        1
+      );
+      expect((await get('/boom')).status).toBe(500);
+      expect(
+        outputs.filter(message => message.type === 'execute_error')
+      ).toEqual([]);
+      expect(errorLogger).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'adapter failed' })
+      );
+    } finally {
+      errorLogger.mockRestore();
+    }
   });
 
   it('disposes and replaces the adapter on reinitialization', async () => {

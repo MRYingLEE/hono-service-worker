@@ -24,7 +24,7 @@ export interface IRuntimeRoutes {
 
 export interface IRuntimeRoutesOptions {
   /** Report handler exceptions unless a cell supplies its own error handler. */
-  onError(error: unknown): void;
+  onError(error: unknown): void | Promise<void>;
 }
 
 /**

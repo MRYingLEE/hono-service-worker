@@ -241,29 +241,36 @@ describe('dispatchRequest', () => {
     );
   });
 
-  it('returns 500 and reports the error when a handler throws', async () => {
+  it('returns 500 without publishing a notebook error when a handler throws', async () => {
     const outputs: RuntimeOutputMessage[] = [];
     const api = await setup(outputs);
+    const errorLogger = jest
+      .spyOn(globalThis.console, 'error')
+      .mockImplementation(() => undefined);
 
-    const reply = await api.execute(
-      "app.get('/boom', () => { throw new Error('boom'); });",
-      1
-    );
-    expect(reply.status).toBe('ok');
+    try {
+      const reply = await api.execute(
+        "app.get('/boom', () => { throw new Error('boom'); });",
+        1
+      );
+      expect(reply.status).toBe('ok');
 
-    const response = await api.dispatchRequest({
-      method: 'GET',
-      url: 'http://runtime.local/boom'
-    });
+      const response = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/boom'
+      });
 
-    expect(response.status).toBe(500);
-
-    const errors = outputs.filter(message => message.type === 'execute_error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({
-      type: 'execute_error',
-      bundle: { ename: 'Error', evalue: 'boom' }
-    });
+      expect(response.status).toBe(500);
+      expect(
+        outputs.filter(message => message.type === 'execute_error')
+      ).toEqual([]);
+      expect(errorLogger).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'boom' })
+      );
+    } finally {
+      errorLogger.mockRestore();
+      await api.dispose();
+    }
   });
 
   it('preserves cell-defined error and not-found handlers', async () => {

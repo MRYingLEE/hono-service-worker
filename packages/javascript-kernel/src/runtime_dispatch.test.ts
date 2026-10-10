@@ -272,7 +272,7 @@ describe('dispatchRequest', () => {
         outputs.filter(message => message.type === 'execute_error')
       ).toEqual([]);
       expect(errorLogger).toHaveBeenCalledWith(
-        '[JavaScript Kernel routes] Request handler failed',
+        '[Web routes] Request handler failed',
         expect.objectContaining({
           path: '/boom',
           error: expect.objectContaining({ message: 'boom' })
@@ -306,7 +306,7 @@ describe('dispatchRequest', () => {
 
       expect(infoLogger).not.toHaveBeenCalled();
       expect(warningLogger).toHaveBeenCalledWith(
-        '[JavaScript Kernel routes] HTTP request completed',
+        '[Web routes] HTTP request completed',
         expect.objectContaining({
           method: 'GET',
           path: '/missing',
@@ -405,7 +405,7 @@ describe('dispatchRequest', () => {
       });
       expect(response.status).toBe(500);
       expect(errorLogger).toHaveBeenCalledWith(
-        '[JavaScript Kernel routes] Request handler failed',
+        '[Web routes] Request handler failed',
         expect.objectContaining({
           path: '/boom',
           error: expect.objectContaining({ message: 'boom' })

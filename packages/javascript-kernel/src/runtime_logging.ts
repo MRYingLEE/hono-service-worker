@@ -53,7 +53,7 @@ export function logRouteMessage(
   }
   const args =
     details === undefined
-      ? [`[JavaScript Kernel routes] ${message}`]
-      : [`[JavaScript Kernel routes] ${message}`, details];
+      ? [`[Web routes] ${message}`]
+      : [`[Web routes] ${message}`, details];
   logger[level](...args);
 }

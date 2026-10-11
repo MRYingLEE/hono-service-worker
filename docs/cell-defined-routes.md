@@ -59,8 +59,19 @@ claim registry for its current list.
   or it is disposed.
 - Re-running a cell replaces the route registrations made by that cell while
   retaining other cells' registrations. Calling `claimPrefix()` also removes
-  other cells' routes in the same Runtime under the claimed prefix.
-- Restarting a kernel clears its route table and releases its claims.
+  other cells' routes in the same Runtime under the claimed prefix, using the
+  same whole-segment rule as Service Worker matching: claiming `/api/report/`
+  removes `/api/report/x` but not `/api/reporting/x`. Wildcard registrations
+  (`use(handler)`, `all('*')`) and parameterised patterns whose static part
+  overlaps the claim are removed as well. Cell-defined `notFound` and `onError`
+  handlers are not path-scoped and are kept.
+- A route, middleware, or handler registered after its cell has finished is
+  ignored and logged at `warn`. Register routes synchronously while the cell
+  runs. Registrations inside a `setTimeout`, a promise callback, or an event
+  handler that fires after the cell ends do not take effect.
+- Restarting a kernel clears its route table and releases its claims. Claims
+  are released by the kernel's dispose path; a restarted kernel starts with
+  none.
 
 Treat prefixes as shared URL namespaces, not as access-control boundaries.
 Use a stable, application-specific prefix such as
@@ -79,6 +90,8 @@ for naming and development recommendations.
   not emitted as an error output in the cell that initiated the request.
 - If the claim exists but its owning kernel Runtime is unavailable, the
   response is `503` with plain text `Runtime for <prefix> is not running`.
+  This also applies when the owning page does not answer within 20 seconds, so
+  a frozen page cannot hang the request indefinitely.
 - A handler's own status, headers, and body are returned to the caller.
 
 Completed route requests are logged in the Runtime console: successful
@@ -88,6 +101,12 @@ responses at `info`, client errors at `warn`, and server errors at `error`.
 
 A `claimedPrefixes()` operation still pending when a kernel restarts may not
 resolve: reinitialization clears outstanding Runtime-side requests.
+
+The Worker Runtime sends a heartbeat every 1 second and treats it as lost after
+3 seconds without a reply. A lost Runtime makes its claimed prefixes return
+`503`, so a busy or crashed Runtime is reported rather than left to hang. The
+JupyterLite extension also shuts a notebook's or console's JavaScript kernel
+down when its tab closes, which releases that kernel's service worker claims.
 
 ## Architecture and request flow
 
@@ -345,3 +364,58 @@ Notebook examples in the reference repository:
 [basic cell routes](../examples/cell-defined-routes.ipynb),
 [direct OpenAI mock](../examples/openai-mock.ipynb), and
 [OpenAI SDK mock](../examples/openai-sdk-mock.ipynb).
+
+## Cross-language capability: status and suggestions
+
+Status: not implemented. The JavaScript kernel supports cell-defined routes
+only for the JavaScript Runtime. The work below is planned for a future
+change.
+
+### Current status
+
+Reusable as-is (language-neutral):
+
+- Plain-data request and response types with `Uint8Array` bodies.
+- Service Worker claim registry, whole-segment and longest-prefix matching,
+  and Runtime-scoped selection.
+- The `IRuntimeRoutes` adapter interface and the `RuntimeRoutesFactory` seam.
+- The 503 unavailable response and the 20 second timeout.
+
+Hard-wired to JavaScript, Hono, or Comlink:
+
+- The default route factory is Hono.
+- `app`, `claimPrefix`, and `claimedPrefixes` are installed as JavaScript
+  globals.
+- `IRemoteRuntimeApi` is a Comlink contract that mixes kernel and Runtime
+  concerns.
+- The 1 second / 3 second heartbeat exists only in the Worker Runtime backend;
+  the iframe mode has none.
+- Runtime identity is learned by fetching the reserved `__runtime_identity__`
+  URL from the Runtime's client context.
+
+Gaps against the design:
+
+- The page's backend map is keyed by kernel ID only, so a polyglot kernel with
+  several language Runtimes cannot select one. Kernel identity must be kept
+  separate from language-runtime identity.
+- Claims carry no Runtime field, so routing cannot target a specific language
+  Runtime within a kernel.
+- No second-language adapter or cross-runtime contract test exists.
+
+### Suggestions
+
+1. Decide ownership first: one Runtime per kernel or per language, which
+   repository owns each layer (`xeus-x`, `xeus-javascript-private`, or
+   `datax-now`), and the cell API naming for each language. Confirm with the
+   maintainers before implementation.
+2. Generalise the seams: key backends by kernel ID plus Runtime ID, add a
+   Runtime field to claims, and move the protocol to a neutral typed schema
+   that does not depend on Comlink.
+3. Make the heartbeat and identity handshake part of the Runtime contract so
+   every Runtime type reports liveness and identity the same way, without
+   requiring the Runtime to fetch from its client context.
+4. Build a proof of concept with one non-JavaScript Runtime, and validate the
+   seams from step 2 against it.
+5. Add contract tests that run the same route scenarios against every Runtime
+   type, covering routing, replacement, release, dispatch, errors, and the
+   503 path.

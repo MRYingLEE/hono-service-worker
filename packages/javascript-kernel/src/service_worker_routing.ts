@@ -32,10 +32,10 @@ export function resolveOwningClaim(
 export function resolveRuntimeClaim(
   claims: IClaim[],
   requestUrl: string,
-  ownerContextId: string,
+  issuingContextId: string,
   kernelId: string
 ): IClaim | null {
-  return selectLongestClaim(claims, requestUrl, ownerContextId, kernelId);
+  return selectLongestClaim(claims, requestUrl, issuingContextId, kernelId);
 }
 
 function selectLongestClaim(
@@ -63,7 +63,7 @@ function selectLongestClaim(
   return best;
 }
 
-function matchesPrefix(path: string, prefix: string): boolean {
+export function matchesPrefix(path: string, prefix: string): boolean {
   if (path === prefix) {
     return true;
   }

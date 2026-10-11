@@ -49,6 +49,8 @@ let runtimes = new Map<string, IRuntimeEntry>();
 /**
  * Ask the page that issued a request for the response of its Kernel.
  */
+const DISPATCH_TIMEOUT_MS = 20000;
+
 function dispatchToClient(
   client: IServiceWorkerClient,
   kernelId: string,
@@ -57,7 +59,16 @@ function dispatchToClient(
 ): Promise<IRuntimeResponse> {
   return new Promise<IRuntimeResponse>(resolve => {
     const channel = new MessageChannel();
+    const timer = setTimeout(() => {
+      channel.port1.onmessage = null;
+      resolve({
+        status: 503,
+        headers: { 'content-type': 'text/plain' },
+        body: new TextEncoder().encode(runtimeUnavailableMessage(prefix))
+      });
+    }, DISPATCH_TIMEOUT_MS);
     channel.port1.onmessage = event => {
+      clearTimeout(timer);
       resolve(event.data as IRuntimeResponse);
     };
     const message: IDispatchMessage = {

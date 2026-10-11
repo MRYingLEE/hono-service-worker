@@ -134,6 +134,94 @@ describe('dispatchRequest', () => {
     expect(decode(missing.body)).toBe('404 Not Found');
   });
 
+  it('keeps a sibling route whose path only shares a string prefix with the claim', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.get('/api/reporting/x', c => c.text('sibling'));",
+      1,
+      undefined,
+      'cell-1'
+    );
+    await api.execute("claimPrefix('/api/report');", 2, undefined, 'cell-2');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/api/reporting/x'
+    });
+
+    expect(response.status).toBe(200);
+    expect(decode(response.body)).toBe('sibling');
+  });
+
+  it('drops an earlier wildcard handler that overlaps a later claim', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.use('*', async (c, next) => { await next(); c.header('x-old', '1'); });",
+      1,
+      undefined,
+      'cell-1'
+    );
+    await api.execute("claimPrefix('/r/');", 2, undefined, 'cell-2');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/r/x'
+    });
+
+    expect(response.headers['x-old']).toBeUndefined();
+  });
+
+  it('drops an earlier parameterised route that overlaps a later claim', async () => {
+    const api = await setup();
+
+    await api.execute(
+      "app.get('/r/:id', c => c.text('param'));",
+      1,
+      undefined,
+      'cell-1'
+    );
+    await api.execute("claimPrefix('/r/');", 2, undefined, 'cell-2');
+
+    const response = await api.dispatchRequest({
+      method: 'GET',
+      url: 'http://runtime.local/r/42'
+    });
+
+    expect(response.status).toBe(404);
+  });
+
+  it('ignores a route registered from a deferred callback after its cell ends', async () => {
+    const warningLogger = jest
+      .spyOn(globalThis.console, 'warn')
+      .mockImplementation(() => undefined);
+    const api = await setup();
+
+    try {
+      await api.execute(
+        "const captured = app; setTimeout(() => captured.get('/late/x', c => c.text('late')), 0);",
+        1,
+        undefined,
+        'cell-1'
+      );
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const response = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/late/x'
+      });
+
+      expect(response.status).toBe(404);
+      expect(warningLogger).toHaveBeenCalledWith(
+        expect.stringContaining('registered after its cell finished'),
+        {}
+      );
+    } finally {
+      warningLogger.mockRestore();
+    }
+  });
+
   it('drops an earlier cell route under a prefix that a later cell claims', async () => {
     const api = await setup();
 
@@ -161,6 +249,52 @@ describe('dispatchRequest', () => {
 
     expect(response.status).toBe(200);
     expect(decode(response.body)).toBe('second');
+  });
+
+  it('keeps cell-defined error and not-found handlers when a later cell claims a prefix', async () => {
+    const api = await setup();
+    try {
+      await api.execute(
+        [
+          "app.notFound(c => c.text('custom missing', 404));",
+          "app.onError((error, c) => c.text(`handled: ${error.message}`, 500));"
+        ].join('\n'),
+        1,
+        undefined,
+        'cell-1'
+      );
+      await api.execute("claimPrefix('/api/');", 2, undefined, 'cell-2');
+
+      const missing = await api.dispatchRequest({
+        method: 'GET',
+        url: 'http://runtime.local/elsewhere'
+      });
+      expect(missing.status).toBe(404);
+      expect(decode(missing.body)).toBe('custom missing');
+    } finally {
+      await api.dispose();
+    }
+  });
+
+  it('keeps cell-less executions in separate route records', async () => {
+    const api = await setup();
+    try {
+      await api.execute("app.get('/one', c => c.text('one'));", 1);
+      await api.execute("app.get('/two', c => c.text('two'));", 2);
+
+      expect(
+        decode(
+          (
+            await api.dispatchRequest({
+              method: 'GET',
+              url: 'http://runtime.local/one'
+            })
+          ).body
+        )
+      ).toBe('one');
+    } finally {
+      await api.dispose();
+    }
   });
 
   it('keeps earlier cell routes under prefixes the later claim does not cover', async () => {

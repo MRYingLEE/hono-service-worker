@@ -4,6 +4,7 @@
 import { Hono } from 'hono';
 import type { ErrorHandler } from 'hono';
 import { headersToRecord } from './runtime_protocol';
+import { matchesPrefix as pathIsUnderPrefix } from './service_worker_routing';
 import type { IRuntimeRequest, IRuntimeResponse } from './runtime_protocol';
 import type {
   IRuntimeRoutes,
@@ -57,6 +58,25 @@ const routePathOf = (call: IAppCall): string | undefined => {
   return typeof path === 'string' ? path : undefined;
 };
 
+const patternOverlapsPrefix = (pattern: string, prefix: string): boolean => {
+  if (pattern === '*' || pattern === '/*') {
+    return true;
+  }
+  const staticPart = pattern.split(/[:*]/)[0];
+  return (
+    pathIsUnderPrefix(staticPart, prefix) ||
+    pathIsUnderPrefix(prefix, staticPart)
+  );
+};
+
+const callOverlapsPrefix = (call: IAppCall, prefix: string): boolean => {
+  if (call.method === 'notFound' || call.method === 'onError') {
+    return false;
+  }
+  const path = routePathOf(call);
+  return path === undefined || patternOverlapsPrefix(path, prefix);
+};
+
 class HonoRuntimeRoutes implements IRuntimeRoutes {
   constructor(private readonly _options: IRuntimeRoutesOptions) {
     this._app = this._createApp();
@@ -70,12 +90,21 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
   beginCell(cellKey: string): void {
     const calls: IAppCall[] = [];
     this._appCallsByCell.set(cellKey, calls);
-    const target = this._app;
-    const recorder: Hono = new Proxy(target, {
-      get(obj, prop) {
+    const isCellEnded = (): boolean => this._currentCellKey !== cellKey;
+    const recorder: Hono = new Proxy(this._app, {
+      get: (obj, prop) => {
         if (typeof prop === 'string' && REGISTRATION_METHODS.has(prop)) {
+          const method: string = prop;
           return (...args: unknown[]) => {
-            calls.push({ method: prop, args });
+            if (isCellEnded()) {
+              this._options.log(
+                'warn',
+                `Ignored ${method}() registered after its cell finished; register routes synchronously while the cell runs`,
+                {}
+              );
+              return recorder;
+            }
+            calls.push({ method, args });
             return recorder;
           };
         }
@@ -120,10 +149,7 @@ class HonoRuntimeRoutes implements IRuntimeRoutes {
       }
       this._appCallsByCell.set(
         key,
-        calls.filter(call => {
-          const path = routePathOf(call);
-          return path === undefined || !path.startsWith(prefix);
-        })
+        calls.filter(call => !callOverlapsPrefix(call, prefix))
       );
     }
   }

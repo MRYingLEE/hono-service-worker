@@ -125,3 +125,4 @@ dmypy.json
 # JupyterLite generated files
 .jupyterlite.doit.db
 _output
+temp/

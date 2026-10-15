@@ -1,0 +1,3 @@
+# Service worker routes requests to the kernel runtime instead of hosting Hono
+
+Client code calls an existing Remote service that we may not have source for, so its requests must be intercepted by a service worker. We decided that the Hono app runs inside each Kernel's Web Worker runtime, not in the service worker, and that the service worker only routes intercepted requests to the owning Kernel's runtime. A service worker is one per origin and cannot map one-to-one to Kernels, and the Hono app needs per-Kernel state and cell-defined routes, so hosting it in the shared worker would mix Kernels together.

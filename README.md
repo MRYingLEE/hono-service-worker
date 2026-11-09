@@ -1,13 +1,13 @@
+# Browser-hosted Hono experiment
+
+This repository includes an experiment to host [Hono](https://github.com/honojs/hono) in the service worker through the JupyterLite JavaScript kernel. Notebook cells can define Hono routes in their browser Runtime, and same-origin `fetch()` requests are dispatched to the owning kernel through a Service Worker. No network listening socket is opened. See [Cell-defined routes](docs/cell-defined-routes.md) for details and limitations.
+
 # jupyterlite-javascript-kernel
 
 [![Github Actions Status](https://github.com/jupyterlite/javascript-kernel/workflows/Build/badge.svg)](https://github.com/jupyterlite/javascript-kernel/actions/workflows/build.yml)
 [![lite-badge](https://jupyterlite.rtfd.io/en/latest/_static/badge.svg)](https://jupyterlite.github.io/javascript-kernel/lab/index.html)
 
 A JavaScript kernel for JupyterLite.
-
-## Browser-hosted Hono experiment
-
-This repository includes an experiment by [MRYingLEE](https://github.com/MRYingLEE) to host Hono in the browser through the JupyterLite JavaScript kernel. Notebook cells can define Hono routes in their browser Runtime, and same-origin `fetch()` requests are dispatched to the owning kernel through a Service Worker. No network listening socket is opened. See [Cell-defined routes](docs/cell-defined-routes.md) for details and limitations.
 
 ![a screenshot showing a notebook with the JavaScript kernel in JupyterLite](https://github.com/jupyterlite/javascript-kernel/assets/591645/c9085a6e-452e-4f77-8553-36133ee32389)
 
